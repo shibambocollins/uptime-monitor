@@ -12,7 +12,7 @@ A platform that monitors deployed applications (synthetic / black-box monitoring
 **Differentiator:** a `chaos-target` service that goes down, slows down, and flaps on a schedule. We measure the platform against it: time-to-detect, false-alert rate, missed-incident rate.
 
 ## 2. Current status
-Pre-code. **Phase 0 (deployment spike) comes before any feature work.** See section 4.
+Pre-code. **Phase 0 (deployment spike) comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
 
 ## 3. Decisions made (do not relitigate without a reason; see DECISIONS.md)
 **Chosen: Option A — Spring Boot on Render + Aiven MySQL, with an external tick trigger.**
@@ -115,7 +115,19 @@ Switch only if the Phase 0 spike fails or the developer decides otherwise.
 Spring Boot Actuator + Micrometer (checks run, check duration, failures, tick duration, queue lag, alerts sent), structured JSON logs with a correlation id per check, a health endpoint. A monitoring tool must be monitorable.
 
 ## 12. Conventions
-Constructor injection only. DTOs at the API boundary (never expose entities). Consistent error format. API under `/api/v1`, documented with OpenAPI. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`). Every feature ships with tests: unit tests for the pure domain, Testcontainers for scheduler and repository logic, WireMock for the checker.
+Constructor injection only. DTOs at the API boundary (never expose entities). Consistent error format. API under `/api/v1`, documented with OpenAPI. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`). Every feature ships with tests: unit tests for the pure domain, Testcontainers for scheduler and repository logic, WireMock for the checker.
+
+**Branching (always, no exceptions):**
+- Never commit to `main`. Before any commit, check the current branch; if it is `main`, create a branch first.
+- One branch per change, named by type: `feat/`, `fix/`, `test/`, `docs/`, `chore/`, `ci/`, `spike/` (e.g. `feat/tick-endpoint`).
+- Changes reach `main` only through a pull request with green CI. Protect `main`: require the CI check, block force-pushes. The repo is public, so branch protection is available on GitHub Free (verify the setting when enabling it).
+- Push and open PRs only when the developer asks.
+
+**CI and workflows (always):**
+- GitHub Actions in `.github/workflows/`. `ci.yml` runs on every pull request and every push to `main`: `./mvnw -B clean verify`, including Testcontainers tests (GitHub-hosted Ubuntu runners include Docker). Add frontend (lint, test, build) and Worker (typecheck) jobs in the same PR that creates those folders.
+- A change that adds a module, build step, deployable, or environment variable updates the workflows (and the README's env var list) in the same PR. A feature is not done until CI is green.
+- Workflow hygiene: least-privilege `permissions:`, secrets only from GitHub encrypted secrets and never echoed, GitHub-owned actions pinned to a major tag, third-party actions pinned to a full commit SHA.
+- Deploy workflows (container image to GHCR, Worker deploy) are added when a phase needs them, not before, and run only from `main`.
 
 ## 13. Commands (update once scaffolded)
 ```
