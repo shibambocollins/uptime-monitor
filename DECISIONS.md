@@ -69,3 +69,4 @@ College applications platform (the idea that preceded this one): the premise was
 - Whether Cloudflare Cron Trigger calls to Render survive cold starts well (set a timeout and a retry).
 - Whether D1 deletes count as rows written (Option B only).
 - Whether Google/Microsoft sign-in is wanted later.
+- **Found 2026-10-15 (sources in `docs/phase-0-checklist.md` §1):** Render free blocks outbound SMTP ports 25, 465 and 587, so the email transport in CLAUDE.md §7 is open until the Phase 0 email probe. Render's 750 free hours are per workspace, and a service ticked every minute never sleeps (about 744 hours/month), so `chaos-target` cannot be a second free Render service. Spring Boot 3.x is out of open-source support (3.5 ended 30 June 2026; 4.1 is current), so the version in CLAUDE.md §3 needs a decision.
