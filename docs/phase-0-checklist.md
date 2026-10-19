@@ -46,11 +46,11 @@ P1 allows about 14 failed ticks. P4 is the test for the 6-connection queueing pr
 
 One branch and one PR per step (CLAUDE.md §12). CI must be green before merging. Code that survives into the product (scaffold, CI, checker, chaos-target) is written properly with tests; spike-only bits (burst switches, the cookie test route) are clearly marked and removed after Phase 0.
 
-- [ ] **Step 1: `chore/scaffold`**
-  - [ ] npm workspaces: `apps/app`, `apps/chaos-target`, `packages/core`. Create `apps/app` with Cloudflare's official scaffolder (`npm create cloudflare@latest`, Hono template if offered), and take versions from what it generates.
-  - [ ] TypeScript `strict`, ESLint, Prettier, Vitest. `packages/core` gets one trivial test so CI has something to run.
-  - [ ] Add `.gitattributes` with `* text=auto eol=lf`. This machine has `core.autocrlf=true`, which checks files out with CRLF, and Prettier's LF default would then fail `--check` locally.
-  - [ ] `npm run typecheck && npm run lint && npm test` pass locally.
+- [x] **Step 1: `chore/scaffold`**
+  - [x] npm workspaces (`apps/*`, `packages/*`): `apps/app` and `packages/core`. `apps/chaos-target` is created in step 3, where it gets real code. Cloudflare's scaffolder (create-cloudflare 2.74.0) ignored `--template` when run non-interactively and its install failed, so `apps/app` was written by hand from the files it generated (`hello-world-with-assets`), with versions taken from npm on 2026-10-19.
+  - [x] TypeScript `strict` (pinned `~6.0`: typescript-eslint 8.71 supports `<6.1`, so TypeScript 7 waits), ESLint 10 flat config, Prettier, Vitest 5. `packages/core` has `worstState` (project health, CLAUDE.md §3) with tests; `apps/app` has `GET /api/v1/health` tested in workerd.
+  - [x] Add `.gitattributes` with `* text=auto eol=lf`. This machine has `core.autocrlf=true`, which checks files out with CRLF, and Prettier's LF default would then fail `--check` locally.
+  - [x] `npm run typecheck && npm run lint && npm test` pass locally (2026-10-19). `wrangler deploy --dry-run` bundles the Worker.
 - [ ] **Step 2: `ci/build`**
   - [ ] `.github/workflows/ci.yml`: runs on `pull_request` and on `push` to `main`; `actions/setup-node` with Node 22 and the npm cache; `npm ci`, typecheck, lint, test, build; `permissions: contents: read`.
   - [ ] After the first green run, protect `main`: require the CI check, block force-pushes.
@@ -62,7 +62,7 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [ ] D1 migrations for the subset of the real schema the checker needs: `monitors`, `check_rollups_hourly`, `check_events`, `usage_daily`. No index on `monitors(next_run_at)` or `lease_until`; `check_rollups_hourly` is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)` (CLAUDE.md §5: index writes count toward the cap). If D1 rejects `WITHOUT ROWID`, use a normal table and expect one extra row written per monitor per hour.
   - [ ] `scheduled()` handler: one conditional `UPDATE` claims due monitors (advances `next_run_at`, sets `lease_until`); checks run with concurrency ≤ 6 and the timer starting when each request actually starts; one `db.batch()` writes rollups, changed monitor rows and failure events; one structured log line per tick (duration, checks, failures, CPU-relevant counts, rows written).
   - [ ] Spike-only switch (env var) for 1 vs 40 checks per tick and for a slow tick (P4, P6).
-  - [ ] Tests with `@cloudflare/vitest-pool-workers`: claim skips leased monitors; rollup upsert; outbound `fetch` mocked.
+  - [ ] Tests with `@cloudflare/vitest-plugin`: claim skips leased monitors; rollup upsert; outbound `fetch` mocked.
 - [ ] **Step 5: `spike/same-origin`**
   - [ ] Minimal React (Vite) page served from the `app` Worker's static assets; a spike route sets a test cookie and a second route echoes whether it arrived (P7).
 - [ ] **Step 6: Deploy** (configuration only, no branch needed)

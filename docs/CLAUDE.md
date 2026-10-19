@@ -31,7 +31,7 @@ Pre-code. **Phase 0 (spike) comes before any feature work.** See section 4 and t
 | Alerts | Discord webhooks (primary) and email via a provider's HTTP API (owner-only, no domain). Team-level channels plus per-user subscriptions, with per-project and per-monitor rules |
 | Structure | Team → Project → Monitors (endpoints). Project health = worst-of its monitors |
 | Validation | Zod schemas at the API boundary; OpenAPI generated from them (`@hono/zod-openapi`; verify current package) |
-| Tests | Vitest. Pure domain tests in plain Node; Worker and D1 tests with `@cloudflare/vitest-pool-workers` (runs in the Workers runtime). Mock outbound `fetch` the way that package currently recommends (verify) |
+| Tests | Vitest. Pure domain tests in plain Node; Worker and D1 tests with `@cloudflare/vitest-plugin` (runs in the Workers runtime; formerly `@cloudflare/vitest-pool-workers`, renamed and deprecated). Mock outbound `fetch` the way that package currently recommends (verify) |
 | Repo layout | npm workspaces: `apps/app` (Worker + React), `apps/chaos-target`, `packages/core` (pure domain), `contract-tests/*.json` |
 
 **Not in scope / rejected:** Kafka, Kubernetes, microservices, AI features, SMS, WhatsApp, Telegram (see DECISIONS.md), Azure and Oracle (card required), Cloudflare Pages for the frontend (cross-site cookies), SMTP (blocked on Render free; port 25 blocked for Workers sockets; no domain anyway).
@@ -124,7 +124,7 @@ Switch back only if the Phase 0 spike shows B cannot meet its pass criteria afte
 Structured JSON logs (`console.log` of one object per event) with a correlation id per tick and per check; Workers Logs and the Workers/D1 dashboards for CPU time, invocations, and rows written. A `GET /api/v1/health` endpoint. Each tick records its stats (duration, checks run, failures, alerts sent, rows written) in the logs and the `usage_daily` counter. **Dead man's switch:** the cron cannot report that it stopped running, so an outside free service should watch for missing ticks (candidate: a heartbeat-monitoring service with a card-free free tier; verify before choosing). A monitoring tool must be monitorable.
 
 ## 12. Conventions
-TypeScript `strict`, no `any` without a comment explaining why. Feature folders. Dependencies passed in explicitly (no hidden globals), so domain code is testable without the Workers runtime. DTOs at the API boundary (never return database rows directly). Consistent error format. API under `/api/v1`, documented with OpenAPI. ESLint and Prettier. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`), made by the developer (see Git below). Every feature ships with tests: unit tests for the pure domain, `vitest-pool-workers` tests for scheduler and D1 logic, mocked `fetch` for the checker.
+TypeScript `strict`, no `any` without a comment explaining why. Feature folders. Dependencies passed in explicitly (no hidden globals), so domain code is testable without the Workers runtime. DTOs at the API boundary (never return database rows directly). Consistent error format. API under `/api/v1`, documented with OpenAPI. ESLint and Prettier. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`), made by the developer (see Git below). Every feature ships with tests: unit tests for the pure domain, `@cloudflare/vitest-plugin` tests for scheduler and D1 logic, mocked `fetch` for the checker.
 
 **Git (always, no exceptions):**
 - **The developer does all git operations** (staging, committing, pushing, opening and merging PRs), mostly through the VS Code Git extension. Claude edits files only: never run `git add`, `git commit`, `git push` or anything that rewrites history. When a change is ready, say what changed and suggest a commit message; give git commands only where VS Code can't easily do the job.
@@ -139,14 +139,17 @@ TypeScript `strict`, no `any` without a comment explaining why. Feature folders.
 - Workflow hygiene: least-privilege `permissions:`, secrets only from GitHub encrypted secrets and never echoed, GitHub-owned actions pinned to a major tag, third-party actions pinned to a full commit SHA.
 - Deploy workflows (`wrangler deploy` and D1 migrations with a scoped Cloudflare API token; Render deploy for `chaos-target`) are added when a phase needs them, not before, and run only from `main`.
 
-## 13. Commands (update once scaffolded)
+## 13. Commands
 ```
 npm ci
 npm run typecheck && npm run lint && npm test
+npm run format                           # Prettier --write; `lint` runs Prettier --check
 npm run dev -w apps/app                  # wrangler dev: Worker + local D1 + static assets
+npm run cf-typegen -w apps/app           # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 npx wrangler d1 migrations apply <db> --local
-npm run dev -w apps/chaos-target
+npm run dev -w apps/chaos-target         # from step 3
 ```
+`worker-configuration.d.ts` is generated (gitignored); `npm run typecheck` regenerates it.
 Develop locally with `wrangler dev` first. Hosting is only needed for Phase 0 and the final deploy.
 
 ## 14. Stretch (only after the MVP works)
