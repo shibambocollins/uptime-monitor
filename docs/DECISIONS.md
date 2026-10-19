@@ -41,7 +41,7 @@ Render sleeps, so the app cannot own its timer. Options: GitHub Actions cron (5-
 | Portfolio | Java, Spring Security, JPA, Docker | TypeScript, serverless/edge |
 | Main risk | Free Render fit and cold starts | Quota ceilings, SSRF gap |
 
-**Decision:** A, gated by the Phase 0 spike, with B as the planned fallback. Reasons: matches Java role targets; the hard engineering (SKIP LOCKED claiming, DNS-pinned SSRF defense, transactional outbox) lives in A; B's free-tier limits would shape the design.
+**Decision (superseded on 2026-10-19, see §10):** A, gated by the Phase 0 spike, with B as the planned fallback. Reasons: matches Java role targets; the hard engineering (SKIP LOCKED claiming, DNS-pinned SSRF defense, transactional outbox) lives in A; B's free-tier limits would shape the design.
 
 **Option B request estimates (assumptions, 3-6 users):** a cron every minute is 1,440 requests/day. Development about 2-7% of the 100,000 daily requests; production 3 users about 2%, 6 users with dashboards open about 8%. The binding limit is D1 writes at about 4 rows per check: 30 monitors at 5-minute intervals is about 35% of the daily write cap; 30 monitors at 1-minute intervals exceeds it.
 
@@ -70,3 +70,24 @@ College applications platform (the idea that preceded this one): the premise was
 - Whether D1 deletes count as rows written (Option B only).
 - Whether Google/Microsoft sign-in is wanted later.
 - **Found 2026-10-15 (sources in `docs/phase-0-checklist.md` §1):** Render free blocks outbound SMTP ports 25, 465 and 587, so the email transport in CLAUDE.md §7 is open until the Phase 0 email probe. Render's 750 free hours are per workspace, and a service ticked every minute never sleeps (about 744 hours/month), so `chaos-target` cannot be a second free Render service. Spring Boot 3.x is out of open-source support (3.5 ended 30 June 2026; 4.1 is current), so the version in CLAUDE.md §3 needs a decision.
+
+## 10. 2026-10-19: switched to Option B
+**Decision:** build Option B (Cloudflare Workers + D1 + Workers Static Assets, TypeScript). Option A becomes the fallback. Full scope kept, with email limited to owner-only.
+
+**Why:**
+- The developer has other Java projects, so this one adds TypeScript and serverless range instead of repeating Java. The original main reason for A (Java role fit) no longer dominates.
+- No custom domain will be bought. Email to other users is impossible on either option, so email no longer separates A from B.
+- B runs on one platform with no sleep and no instance-hour budget; A needed four providers and used about 744 of 750 Render hours per workspace.
+- Render free's SMTP block and outbound-traffic suspension clause were risks for A only. The suspension risk was judged low at portfolio volumes, so it was not the deciding factor.
+
+**Accepted costs:** no DNS-pinned SSRF defence (a hostname, IP-literal and DNS-over-HTTPS check is used, with the rebinding gap documented); D1 daily write cap with a hard stop at the limit; about 40 checks per tick; 6 concurrent connections per invocation; 10 ms CPU; no `SKIP LOCKED` (a conditional `UPDATE` lease instead); tied to Cloudflare.
+
+**Facts checked for this decision** ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/), [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), [D1 limits](https://developers.cloudflare.com/d1/platform/limits/), [static assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/), [service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)):
+- D1 Free: 100,000 rows written and 5 million read per day, reset 00:00 UTC; `INSERT`, `UPDATE` and `DELETE` all count as writes; 50 queries per invocation; 500 MB per database; 5 GB per account. Over the daily limit, queries fail.
+- Workers Free: 6 connections may wait for response headers at once per invocation; no fixed timeout per `fetch()`.
+- Static asset requests are free and unlimited, so the React app is served by the API Worker (same origin) instead of Pages (a separate site, which would make session cookies cross-site).
+- A Worker cannot reliably reach another Worker on the same account by its `workers.dev` URL; service bindings are the documented route. A binding skips the real network, so `chaos-target` is hosted on Render free instead, where it uses the workspace's 750 hours alone.
+
+**Corrected estimate:** the old "about 4 rows per check, about 100 monitors at 5 minutes" figure was wrong (100 × 288 × 4 = 115,200 > 100,000). The new write model targets 2 rows per check (about 58% of the cap for 100 monitors). Verified or revised in Phase 0.
+
+**Revisit if:** the Phase 0 spike fails its criteria after reducing work per tick, or a domain becomes available and email matters more.

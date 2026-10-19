@@ -5,148 +5,152 @@ Read this first every session. Options considered and the reasoning behind decis
 ## 1. What this is
 A platform that monitors deployed applications (synthetic / black-box monitoring: we probe from outside) and alerts developers when a service goes down or gets slow.
 
-**Purpose:** portfolio project for a final-year ICT student targeting junior to early-mid Java backend roles. It must demonstrate backend engineering, scheduling, API design, security awareness, testing, and deployment. It does NOT try to beat UptimeRobot; the README must say so.
+**Purpose:** portfolio project for a final-year ICT student targeting junior to early-mid backend roles (Java or TypeScript; the developer's Java work lives in other projects). It must demonstrate backend engineering, scheduling, API design, security awareness, testing, and deployment. It does NOT try to beat UptimeRobot; the README must say so.
 
-**Hard constraint:** the developer has NO payment card that cloud providers accept. Everything must run on card-free free tiers. Never suggest a service that requires a card unless it is clearly labelled optional.
+**Hard constraints:**
+- NO payment card that cloud providers accept. Everything must run on card-free free tiers. Never suggest a service that requires a card unless it is clearly labelled optional.
+- NO custom domain. We use the host's default domains (`*.workers.dev`, `*.onrender.com`). Consequence: email can only reach the account owner's own address (see section 7).
 
 **Differentiator:** a `chaos-target` service that goes down, slows down, and flaps on a schedule. We measure the platform against it: time-to-detect, false-alert rate, missed-incident rate.
 
 ## 2. Current status
-Pre-code. **Phase 0 (deployment spike) comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
+Pre-code. **Phase 0 (spike) comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
 
 ## 3. Decisions made (do not relitigate without a reason; see DECISIONS.md)
-**Chosen: Option A — Spring Boot on Render + Aiven MySQL, with an external tick trigger.**
-**Fallback: Option B — Cloudflare-native TypeScript.** Used only if the Phase 0 spike fails (section 4).
+**Chosen: Option B — Cloudflare-native TypeScript** (switched from Option A on 2026-10-19; reasons in DECISIONS.md §10).
+**Fallback: Option A — Spring Boot on Render + Aiven MySQL**, only if the Phase 0 spike shows B cannot work.
 
 | Area | Decision |
 |---|---|
-| Backend | Java (assume 21; verify in `pom.xml`), Spring Boot 3.x (verify), Maven (change if Gradle). Feature-based packages |
-| Backend hosting | Render free web service (about 512 MB RAM, 0.1 CPU, sleeps after 15 min idle, 30-60 s wake). One combined deployment (`all` profile = API + checker); separate `api` / `worker` profiles still exist in code for local dev |
-| Database | Aiven free MySQL (1 GB, TLS, capped connections, may power off if unused). Backup: TiDB Cloud Starter (MySQL-compatible, not identical). Postgres (Neon/Supabase) is an acceptable engine switch if needed |
-| Scheduler trigger | A tiny Cloudflare Worker with a Cron Trigger (1-minute minimum) calls `POST /internal/tick`. Internal `@Scheduled` trigger is kept behind a config flag for always-on hosts and local dev |
-| Frontend | React + TypeScript on Cloudflare Pages |
-| Auth | GitHub OAuth via Spring Security `oauth2Login`. No passwords stored. API keys for programmatic access |
-| Alerts | Email + Discord webhooks only (free). Team-level channels plus per-user subscriptions, with per-project and per-monitor rules |
+| Runtime | Cloudflare Workers, TypeScript (`strict`), Hono for routing. Node 22 and Wrangler locally |
+| App shape | One `app` Worker: `fetch` handler serves the API under `/api/v1` and the React build via Workers Static Assets (same origin, so first-party cookies and no CORS); `scheduled` handler runs the checker on a Cron Trigger every minute |
+| Database | D1 (SQLite). Migrations with `wrangler d1 migrations` |
+| Frontend | React + TypeScript (Vite), served by the `app` Worker as static assets. Not Cloudflare Pages (would be a different site from the API) |
+| chaos-target | Small HTTP service on **Render free** (Docker). It must be outside our Cloudflare account: a Worker cannot reliably `fetch()` another Worker on the same account by URL, and a service binding would skip the real network |
+| Auth | GitHub OAuth (authorization code flow with `state` and PKCE where GitHub supports it; verify). Sessions: random token in an `HttpOnly; Secure; SameSite=Lax` cookie, only its SHA-256 hash stored. No passwords. API keys for programmatic access |
+| Alerts | Discord webhooks (primary) and email via a provider's HTTP API (owner-only, no domain). Team-level channels plus per-user subscriptions, with per-project and per-monitor rules |
 | Structure | Team → Project → Monitors (endpoints). Project health = worst-of its monitors |
-| Tests | JUnit 5, Mockito, Testcontainers (MySQL), WireMock |
+| Validation | Zod schemas at the API boundary; OpenAPI generated from them (`@hono/zod-openapi`; verify current package) |
+| Tests | Vitest. Pure domain tests in plain Node; Worker and D1 tests with `@cloudflare/vitest-pool-workers` (runs in the Workers runtime). Mock outbound `fetch` the way that package currently recommends (verify) |
+| Repo layout | npm workspaces: `apps/app` (Worker + React), `apps/chaos-target`, `packages/core` (pure domain), `contract-tests/*.json` |
 
-**Not in scope / rejected:** Kafka, Kubernetes, microservices, AI features, SMS, WhatsApp, Telegram (see DECISIONS.md), Azure and Oracle (card required), Render free Postgres (expires in 30 days).
+**Not in scope / rejected:** Kafka, Kubernetes, microservices, AI features, SMS, WhatsApp, Telegram (see DECISIONS.md), Azure and Oracle (card required), Cloudflare Pages for the frontend (cross-site cookies), SMTP (blocked on Render free; port 25 blocked for Workers sockets; no domain anyway).
 
-## 4. Phase 0 — deployment spike (weeks 1-2, time-box about two evenings)
-Deploy a hello-world Spring Boot app to Render connected to Aiven MySQL.
+## 4. Phase 0 — spike (time-box about two evenings plus a 1-hour burst and a 24-hour soak)
+Deploy a skeleton `app` Worker with a cron, D1, and a `chaos-target` on Render. Prove the free-plan limits fit before building features. Pass criteria and steps: `docs/phase-0-checklist.md`.
 
-**Pass if ALL hold** (thresholds are suggestions; adjust but write them down first):
-- Starts on the free instance without running out of memory.
-- Connects to Aiven over TLS with a Hikari pool of 2-3.
-- A protected `POST /internal/tick` answers correctly after Render has slept and woken.
-- Runs about 10 fake checks per tick, every minute, for 24 hours with no restart and no memory growth.
-
-**Starting points to tune (measure, do not trust):** `-Xmx256m -XX:+UseSerialGC`, `spring.main.lazy-initialization=true`, `server.tomcat.threads.max` low, `spring.datasource.hikari.maximum-pool-size=3`, run Flyway migrations in CI or at deploy if startup is too slow, build the image in CI if the Render build runs out of memory (verify Render supports prebuilt images on free).
-
-**If it fails:** try the fixes above, then database switch (TiDB or Neon) if the DB is the problem, then **fall back to Option B** (section 9). Do not sink more than the time-box into rescuing A.
+**If it fails:** first reduce work per tick (fewer checks, fewer queries, fewer rows), then reconsider the write model (section 5), then fall back to Option A. Do not sink more than the time-box into rescuing B.
 
 ## 5. Architecture
 ```
-Cloudflare Worker (cron, every minute)
-   → POST /internal/tick   (secret header)
-      → Spring Boot on Render
-         → claim due monitors (SELECT ... FOR UPDATE SKIP LOCKED, with a lease)
-         → run checks (bounded concurrency, time budget)
-         → write results; update monitor state; open/close incidents
-         → write alert_events (outbox) in the same transaction
-      → async sender delivers to channels with retries
-React (Cloudflare Pages) → REST API (/api/v1)
+Cron Trigger (every minute)
+   → app Worker: scheduled()
+      → claim due monitors (conditional UPDATE sets a lease; overlapping runs skip leased rows)
+      → run checks with fetch() (concurrency ≤ 6, per-check timeout, overall time budget)
+      → one db.batch(): results, monitor state, incidents, alert_events (outbox)
+      → deliver pending alert_events (bounded per run, retries with backoff)
+Browser → app Worker: fetch()
+      → /api/v1/*   Hono + Zod, session cookie or API key
+      → everything else: React static assets (free, unlimited)
+Render free → chaos-target (a fixture we monitor like any external site)
 ```
-- **Tick endpoint:** requires a shared secret header (constant-time compare), rate-limited, idempotent (overlapping ticks are safe because of the lease), never blocks on alert sending.
-- **Min monitor interval:** configurable. Default 5 minutes on the free tier; tune after the spike.
-- **Alerts use an outbox table.** An email or Discord failure must never lose or block an alert.
-- **Timestamps:** UTC (`Instant`) everywhere.
-- **Uptime %:** successful checks / total checks in the window. Document it in the README.
-- **Retention is mandatory** (1 GB DB): delete raw `check_results` older than a configured window (start at 14-30 days), keep hourly rollups longer, compute p95 from rollups. Index `check_results(monitor_id, checked_at)`. Dashboards read rollups, not raw rows.
+**Free-plan limits that shape the design** (checked 2026-10-15/19; re-verify at build time):
+- Workers: 100,000 requests/day; **10 ms CPU** per invocation (waiting on `fetch()` is not CPU); **50 subrequests** per invocation; **6 connections** waiting for response headers at once; cron wall time 15 min; 5 cron triggers per account. Static asset requests are free and unlimited.
+- D1: **100,000 rows written/day** (`INSERT`, `UPDATE` and `DELETE` all count), 5 million rows read/day, **50 queries per invocation**, 500 MB per database, 5 GB per account. When a daily limit is hit, **all queries fail until 00:00 UTC**.
 
-## 6. Monitor state machine (keep it pure Java with no Spring dependencies)
+**Design rules that follow:**
+- **Checks per tick:** at most about 40 (subrequest budget, minus alert calls). Cap concurrency at 6 ourselves and start the latency timer when the request actually starts, otherwise queueing inflates latency and causes false SLOW alerts.
+- **Queries per tick:** use `db.batch()`. Whether a batch counts as one query or many toward the 50 is unverified; the spike measures it.
+- **Write budget is the binding limit.** Target ≤ 2 rows written per check in the steady state: the claim `UPDATE` (advances `next_run_at` and sets `lease_until` in one statement, so it doubles as the lease) and one hourly rollup upsert (count, failures, latency histogram buckets). The monitor row is rewritten again only when state or counters change; raw check rows are stored only for failures and state changes. Deletes cost writes too, so retention removes rollups and raw failure rows, never per-check rows. At 2 rows/check, 100 monitors at 5-minute intervals use about 58% of the daily cap (100 × 288 × 2 = 57,600). The old estimate (4 rows/check, "about 100 monitors") was wrong: 4 rows/check caps out at about 85. Measure in the spike.
+- **Daily-cap safety:** track rows written per day in a counter; above 80% of the cap, stretch intervals and alert the owner once, so the dashboard never hard-stops.
+- **Min monitor interval:** default 5 minutes; per-team monitor cap.
+- **Alerts use an outbox table.** A Discord or email failure must never lose or block an alert or a check.
+- **Timestamps:** UTC everywhere, stored as INTEGER epoch milliseconds.
+- **Uptime %:** successful checks / total checks in the window, computed from rollups. Document it in the README.
+
+## 6. Monitor state machine (pure TypeScript in `packages/core`, no Workers or Hono imports)
 States: `UP`, `DEGRADED` (slow), `DOWN`.
 - UP → DEGRADED: latency above the monitor's threshold for N consecutive checks.
 - UP/DEGRADED → DOWN: N consecutive failures (default N=3, configurable).
 - DOWN → UP: M consecutive successes (default M=2).
 - Opening DOWN creates an `incident`; recovery closes it. One alert on open, one on recovery, none while unchanged. A single timeout never alerts.
 A check "fails" on: timeout, connection error, status code not matching expected, or (optional) expected text missing.
+Test vectors live in `contract-tests/*.json` so a future port (for example back to Java) must pass the same cases.
 
 ## 7. Alerts, rules, and channels
 **Tables:** `notification_channels` (team-owned: type `EMAIL|DISCORD`, config encrypted, `verified_at`, enabled), `alert_rules` (scope `PROJECT|MONITOR`, scope_id, event_type `DOWN|RECOVERED|SLOW`, target_type `CHANNEL|USER`, target_id, enabled, cooldown_minutes), `alert_events` (outbox), `alert_deliveries` (event, target, status, attempts, last_error).
 - **Resolution order:** monitor rule overrides project rule overrides team default.
-- **Defaults:** every new project gets DOWN and RECOVERED to email. Warn if a change leaves a project with no active alerts.
-- **Build order:** team-level channels and rules first (Option A in DECISIONS.md), then per-user subscriptions (Option B) layered on the same rule table.
-- **Email:** send via SMTP through `JavaMailSender` so the provider is a config change. Dev: Mailpit. Free-tier daily caps are small (indicative: 100-300 a day; verify), so add de-duplication, cooldowns, and per-team daily caps. Verify an email address before it becomes a channel.
-- **Discord:** user pastes a webhook URL. Treat it as a secret (encrypt, show last few characters only). Accept only Discord's own host and the `/api/webhooks/{id}/{token}` shape (this also removes SSRF risk). Send a test message on save. 404 = mark channel broken and tell the user; 429 = retry later. Limit is roughly 5 requests per 2 seconds per webhook.
+- **Defaults:** every new project gets DOWN and RECOVERED to the team's Discord channel if one exists. Warn if a change leaves a project with no active alerts.
+- **Build order:** team-level channels and rules first, then per-user subscriptions layered on the same rule table.
+- **Discord (primary):** user pastes a webhook URL. Treat it as a secret (encrypt, show last few characters only). Accept only Discord's own host and the `/api/webhooks/{id}/{token}` shape (this also removes SSRF risk). Send a test message on save. 404 = mark channel broken and tell the user; 429 = retry after the indicated delay. Limit is roughly 5 requests per 2 seconds per webhook.
+- **Email (limited):** sent through a provider's HTTP API behind an `EmailSender` interface (provider = config plus one adapter). Without a domain, providers only deliver to the account owner's own address (Resend's testing mode, per third-party sources; verify), so email is an owner-only channel and the UI says so. Free daily caps are small (indicative 100-300/day; verify): de-duplicate, apply cooldowns and a daily cap. If a domain is ever added, email to all users becomes a config change.
 - **Delivery isolation:** one channel failing must not block the others. Show failed deliveries in the UI.
 
 ## 8. Security rules (non-negotiable)
-**SSRF (the checker fetches user-supplied URLs):**
-1. Allow only `http` and `https`.
-2. Resolve DNS ourselves; reject loopback, private (RFC 1918), link-local, CGNAT, cloud-metadata, and IPv6 equivalents (including IPv4-mapped IPv6).
-3. Connect to the validated IP (prevents DNS rebinding); re-validate on every redirect.
-4. Limit redirects, set connect/read timeouts, cap body size, never return response bodies to users.
+**SSRF (the checker fetches user-supplied URLs).** Workers cannot pin the resolved IP, so we validate as much as the platform allows and document the gap honestly:
+1. Allow only `http` and `https`. Parse with the WHATWG `URL` parser (it normalises odd IPv4 forms like `http://2130706433/`).
+2. Reject IP literals in loopback, private (RFC 1918), link-local, CGNAT, cloud-metadata ranges, and IPv6 equivalents (including IPv4-mapped IPv6). Reject `localhost`, `*.localhost` and other internal-only names.
+3. Resolve the hostname with DNS-over-HTTPS when a monitor is created or its URL changes, and periodically after; reject if any answer is in a blocked range. This is a check, not a pin: DNS rebinding remains a documented, accepted gap.
+4. `redirect: 'manual'`; re-validate every `Location`; cap redirects. Per-check timeout via `AbortSignal`, cap bytes read, never return response bodies to users.
 5. One unit test per blocked category. Never weaken these for convenience.
+6. The spike records what Workers' `fetch()` actually does with private and loopback addresses, so the README states it as fact, not assumption.
 
 **Auth and secrets**
-- GitHub OAuth: use the `state` parameter and PKCE where supported; separate OAuth Apps for dev and prod; scopes `read:user user:email`.
+- GitHub OAuth: `state` always, PKCE where supported (verify); separate OAuth Apps for dev and prod; scopes `read:user user:email`.
 - Key users by GitHub's immutable numeric user ID, not email. Never auto-link accounts by unverified email.
-- API keys: 32 random bytes, base64url, shown once; store only a SHA-256 hash plus a short plain prefix for lookup.
-- Encrypt channel configs and secrets at rest. Never log tokens, keys, webhook URLs, or secrets.
+- Sessions and API keys: 32 random bytes from `crypto.getRandomValues`, base64url; store only a SHA-256 hash (Web Crypto); API keys shown once, with a short plain prefix for lookup. Constant-time comparison where secrets are compared.
+- Encrypt channel configs and secrets at rest with AES-GCM (Web Crypto); the key is a Worker secret. Never log tokens, keys, webhook URLs, or secrets.
+- Secrets via `wrangler secret put` and GitHub encrypted secrets only; never in the Wrangler config file or the repo.
 - Every query is scoped to the caller's team. Test cross-team access explicitly (user A must never read team B).
-- Rate-limit monitor creation and the tick endpoint. Validate all input.
+- Rate-limit monitor creation and auth endpoints. Validate all input with Zod.
 - Personal data (emails) is minimal and deletable (POPIA). The demo uses seeded or synthetic data.
 - **Demo mode:** a "try demo" path with seeded read-only data, so recruiters need not authorize GitHub.
+- **No passwords, ever:** secure password hashing does not fit the 10 ms CPU budget. OAuth only.
 
 **Abuse:** the platform makes requests to third-party sites. Enforce a minimum interval, a per-team monitor cap, and a clear `User-Agent` (`HealthMonitor/1.0`). Ownership verification of monitored URLs is a documented stretch.
 
-## 9. Fallback plan: Option B (Cloudflare-native TypeScript)
-Switch only if the Phase 0 spike fails or the developer decides otherwise.
-- Workers (TypeScript, Hono), Cron Trigger runs checks directly, D1 (SQLite), GitHub OAuth, React on Pages.
-- **Free-plan limits to design around (verify at build time):** 100,000 requests/day; 50 subrequests per invocation (about 40 checks per tick plus alert calls); 10 ms CPU per invocation (waiting on fetch is not CPU); 5 cron triggers per account; D1 100,000 rows written/day and 5 million read/day, and when a daily limit is hit **queries stop until midnight UTC**. Estimate: about 4 rows written per check, so roughly 100 monitors at 5-minute intervals.
-- **Not possible on free Workers:** secure password hashing (PBKDF2 at 600,000 iterations costs far more than 10 ms), which is why OAuth-only. Workers can check IP literals and hostnames for SSRF but cannot pin the resolved IP.
-- **To make the port cheap:** keep the state machine, rule resolution, and uptime calculation as pure, framework-free code, and share JSON test vectors in `contract-tests/*.json` that both implementations must pass.
+## 9. Fallback plan: Option A (Spring Boot on Render + Aiven MySQL)
+Switch back only if the Phase 0 spike shows B cannot meet its pass criteria after the fixes in section 4. The full Option A plan and its Phase 0 checklist are in git history (commit `51b9ca3`) and DECISIONS.md. Findings that would apply on return: Render free blocks outbound SMTP; 750 free hours are per workspace (and `chaos-target` already uses them); Spring Boot 3.x is out of OSS support, so use 4.1.x. The pure domain and `contract-tests/*.json` make the port cheaper.
 
 ## 10. Data model (starting point; refine)
-`users`(github_id, ...), `teams`, `team_members(role)`, `projects(team_id, deleted_at)`, `monitors(project_id, url, interval_seconds, timeout_ms, latency_threshold_ms, expected_status, expected_text, state, next_run_at, lease_until)`, `check_results(monitor_id, checked_at, success, status_code, response_ms, error)`, `check_rollups_hourly`, `incidents(monitor_id, started_at, resolved_at)`, `notification_channels`, `alert_rules`, `alert_events`, `alert_deliveries`, `api_keys(prefix, hash, team_id, last_used_at, revoked_at)`. Flyway migrations. Soft-delete projects; purge after a retention period.
+`users`(github_id, ...), `sessions`(token_hash, user_id, expires_at), `teams`, `team_members(role)`, `projects(team_id, deleted_at)`, `monitors(project_id, url, interval_seconds, timeout_ms, latency_threshold_ms, expected_status, expected_text, state, consecutive_failures, consecutive_slow, consecutive_successes, last_checked_at, next_run_at, lease_until, dns_checked_at)`, `check_events(monitor_id, checked_at, success, status_code, response_ms, error)` (failures and state changes only), `check_rollups_hourly(monitor_id, hour, total, failures, latency buckets...)`, `incidents(monitor_id, started_at, resolved_at)`, `notification_channels`, `alert_rules`, `alert_events`, `alert_deliveries`, `api_keys(prefix, hash, team_id, last_used_at, revoked_at)`, `usage_daily(day, rows_written)`. Index `monitors(next_run_at)` and `check_rollups_hourly(monitor_id, hour)`. Soft-delete projects; purge after a retention period.
 
 ## 11. Observability of the platform itself
-Spring Boot Actuator + Micrometer (checks run, check duration, failures, tick duration, queue lag, alerts sent), structured JSON logs with a correlation id per check, a health endpoint. A monitoring tool must be monitorable.
+Structured JSON logs (`console.log` of one object per event) with a correlation id per tick and per check; Workers Logs and the Workers/D1 dashboards for CPU time, invocations, and rows written. A `GET /api/v1/health` endpoint. Each tick records its stats (duration, checks run, failures, alerts sent, rows written) in the logs and the `usage_daily` counter. **Dead man's switch:** the cron cannot report that it stopped running, so an outside free service should watch for missing ticks (candidate: a heartbeat-monitoring service with a card-free free tier; verify before choosing). A monitoring tool must be monitorable.
 
 ## 12. Conventions
-Constructor injection only. DTOs at the API boundary (never expose entities). Consistent error format. API under `/api/v1`, documented with OpenAPI. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`). Every feature ships with tests: unit tests for the pure domain, Testcontainers for scheduler and repository logic, WireMock for the checker.
+TypeScript `strict`, no `any` without a comment explaining why. Feature folders. Dependencies passed in explicitly (no hidden globals), so domain code is testable without the Workers runtime. DTOs at the API boundary (never return database rows directly). Consistent error format. API under `/api/v1`, documented with OpenAPI. ESLint and Prettier. Small commits with conventional messages (`feat:`, `fix:`, `test:`, `docs:`, `chore:`, `ci:`). Every feature ships with tests: unit tests for the pure domain, `vitest-pool-workers` tests for scheduler and D1 logic, mocked `fetch` for the checker.
 
 **Branching (always, no exceptions):**
 - Never commit to `main`. Before any commit, check the current branch; if it is `main`, create a branch first.
-- One branch per change, named by type: `feat/`, `fix/`, `test/`, `docs/`, `chore/`, `ci/`, `spike/` (e.g. `feat/tick-endpoint`).
+- One branch per change, named by type: `feat/`, `fix/`, `test/`, `docs/`, `chore/`, `ci/`, `spike/` (e.g. `feat/checker-cron`).
 - Changes reach `main` only through a pull request with green CI. Protect `main`: require the CI check, block force-pushes. The repo is public, so branch protection is available on GitHub Free (verify the setting when enabling it).
 - Push and open PRs only when the developer asks.
 
 **CI and workflows (always):**
-- GitHub Actions in `.github/workflows/`. `ci.yml` runs on every pull request and every push to `main`: `./mvnw -B clean verify`, including Testcontainers tests (GitHub-hosted Ubuntu runners include Docker). Add frontend (lint, test, build) and Worker (typecheck) jobs in the same PR that creates those folders.
-- A change that adds a module, build step, deployable, or environment variable updates the workflows (and the README's env var list) in the same PR. A feature is not done until CI is green.
+- GitHub Actions in `.github/workflows/`. `ci.yml` runs on every pull request and every push to `main`: `npm ci`, typecheck, lint, test, and build for every workspace. Add a job in the same PR that creates a new workspace.
+- A change that adds a workspace, build step, deployable, binding, or environment variable updates the workflows (and the README's config list) in the same PR. A feature is not done until CI is green.
 - Workflow hygiene: least-privilege `permissions:`, secrets only from GitHub encrypted secrets and never echoed, GitHub-owned actions pinned to a major tag, third-party actions pinned to a full commit SHA.
-- Deploy workflows (container image to GHCR, Worker deploy) are added when a phase needs them, not before, and run only from `main`.
+- Deploy workflows (`wrangler deploy` and D1 migrations with a scoped Cloudflare API token; Render deploy for `chaos-target`) are added when a phase needs them, not before, and run only from `main`.
 
 ## 13. Commands (update once scaffolded)
 ```
-./mvnw clean verify
-./mvnw spring-boot:run -Dspring-boot.run.profiles=api
-./mvnw spring-boot:run -Dspring-boot.run.profiles=worker
-cd frontend && npm install && npm run dev
-docker compose up --build        # backend + MySQL + Mailpit + chaos-target locally
+npm ci
+npm run typecheck && npm run lint && npm test
+npm run dev -w apps/app                  # wrangler dev: Worker + local D1 + static assets
+npx wrangler d1 migrations apply <db> --local
+npm run dev -w apps/chaos-target
 ```
-Develop everything locally in Docker Compose first. Hosting is only needed for Phase 0 and the final deploy.
+Develop locally with `wrangler dev` first. Hosting is only needed for Phase 0 and the final deploy.
 
 ## 14. Stretch (only after the MVP works)
 - **Events API:** the monitored app calls `POST /api/v1/events` with an API key so users can alert when an endpoint is actually called. Polling cannot detect real traffic. This is the answer to "alert when an endpoint is triggered".
-- Heartbeat (push) monitors, SSL certificate expiry alerts, public status page, ownership verification of monitored URLs, Telegram.
+- Heartbeat (push) monitors, SSL certificate expiry alerts, public status page, ownership verification of monitored URLs, Telegram, email to all users (needs a domain).
 
 ## 15. How to work with me (the developer)
 I am a student learning to think like an engineer.
 - Explain WHY, and state the trade-off when you pick an approach. Challenge my requests if they are wrong, risky, or overengineered. Do not just agree.
-- Do not invent APIs, library features, config properties, or versions. If unsure, say so and tell me what to verify (official docs, the version in `pom.xml`).
+- Do not invent APIs, library features, config properties, or versions. If unsure, say so and tell me what to verify (official docs, the version in `package.json`).
 - Label fact versus inference versus recommendation. State assumptions explicitly. Ask a question only when the answer would change the design materially.
 - Keep diffs small and reviewable. Tell me how to test and verify each change.
 - Free-tier limits and prices change. Anything marked "verify" must be checked against the provider's current docs before relying on it.
