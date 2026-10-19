@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.wrangler/
+worker-configuration.d.ts
+package-lock.json
+
+# Hand-written planning docs: Prettier would realign every table
+docs/
+CLAUDE.md
