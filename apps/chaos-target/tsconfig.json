@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Node runs the .ts files directly (type stripping), so imports name the .ts file and
+    // only syntax that can be erased (no enums, no parameter properties) is allowed.
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
