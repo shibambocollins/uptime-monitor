@@ -51,13 +51,14 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] TypeScript `strict` (pinned `~6.0`: typescript-eslint 8.71 supports `<6.1`, so TypeScript 7 waits), ESLint 10 flat config, Prettier, Vitest 5. `packages/core` has `worstState` (project health, CLAUDE.md §3) with tests; `apps/app` has `GET /api/v1/health` tested in workerd.
   - [x] Add `.gitattributes` with `* text=auto eol=lf`. This machine has `core.autocrlf=true`, which checks files out with CRLF, and Prettier's LF default would then fail `--check` locally.
   - [x] `npm run typecheck && npm run lint && npm test` pass locally (2026-10-19). `wrangler deploy --dry-run` bundles the Worker.
-- [ ] **Step 2: `ci/build`**
-  - [ ] `.github/workflows/ci.yml`: runs on `pull_request` and on `push` to `main`; `actions/setup-node` with Node 22 and the npm cache; `npm ci`, typecheck, lint, test, build; `permissions: contents: read`.
-  - [ ] After the first green run, protect `main`: require the CI check, block force-pushes.
+- [x] **Step 2: `ci/build`**
+  - [x] `.github/workflows/ci.yml`: runs on `pull_request` and on `push` to `main`; `actions/setup-node` with Node 22 and the npm cache; `npm ci`, typecheck, lint, test, build; `permissions: contents: read`. First green run 2026-10-19 (PR #4 and `main`).
+  - [ ] After the first green run, protect `main`: require the CI checks (`typecheck, lint, test, build` and, from step 3, `chaos-target Docker image`), block force-pushes.
 - [ ] **Step 3: `feat/chaos-target`**
-  - [ ] Small Node + Hono service with routes for: `/ping` (200), a fixed delay, a chosen status code, and a schedule (down / slow / flapping windows decided by the clock, no database).
-  - [ ] `Dockerfile`; deploy to Render free. It stays awake as long as it is checked more often than every 15 minutes.
-  - [ ] Unit tests for the schedule logic.
+  - [x] Node + Hono service (`apps/chaos-target`), run by Node's type stripping with no build step: `/ping` (always 200, the Render health check), `/delay/:ms` (≤ 30 s), `/status/:code` (200-599), `/scheduled` (a 2-hour cycle anchored to the epoch: UP 60, DOWN 20, UP 10, SLOW 15 at 3 s, UP 5, FLAPPING 10 min), and `/schedule` (ground truth: phase windows for a range, plus `bootedAt` so Render restarts can be told apart from planned outages).
+  - [x] Unit tests for the schedule logic and every route (fake clock, no real waiting).
+  - [x] `Dockerfile` (repo root as context, only this workspace's production dependencies), `.dockerignore`, `render.yaml` Blueprint, and a CI job that builds the image and smoke-tests it.
+  - [ ] Deploy to Render free from the Blueprint; record the URL here. It stays awake as long as it is checked more often than every 15 minutes.
 - [ ] **Step 4: `feat/checker-cron`**
   - [ ] D1 migrations for the subset of the real schema the checker needs: `monitors`, `check_rollups_hourly`, `check_events`, `usage_daily`. No index on `monitors(next_run_at)` or `lease_until`; `check_rollups_hourly` is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)` (CLAUDE.md §5: index writes count toward the cap). If D1 rejects `WITHOUT ROWID`, use a normal table and expect one extra row written per monitor per hour.
   - [ ] `scheduled()` handler: one conditional `UPDATE` claims due monitors (advances `next_run_at`, sets `lease_until`); checks run with concurrency ≤ 6 and the timer starting when each request actually starts; one `db.batch()` writes rollups, changed monitor rows and failure events; one structured log line per tick (duration, checks, failures, CPU-relevant counts, rows written).

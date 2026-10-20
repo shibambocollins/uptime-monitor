@@ -34,3 +34,29 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  chaos-target-image:
+    name: chaos-target Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same build Render runs: repo root as context (render.yaml).
+      - name: Build
+        run: docker build -f apps/chaos-target/Dockerfile -t chaos-target .
+
+      - name: Smoke test
+        run: |
+          docker run -d --name chaos-target -p 3000:3000 chaos-target
+          for i in $(seq 1 20); do
+            curl -fsS localhost:3000/ping && break
+            sleep 1
+          done
+          curl -fsS localhost:3000/ping
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/status/503)" = 503
+          curl -fsS localhost:3000/schedule > /dev/null
+
+      - name: Container logs
+        if: always()
+        run: docker logs chaos-target || true

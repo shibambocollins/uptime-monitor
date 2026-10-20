@@ -1,0 +1,24 @@
+# Render Blueprint: Render reads this file and creates the service from it.
+# Spec: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: uptime-chaos-target
+    runtime: docker
+    plan: free
+    # Closest Render region to South Africa. The checker runs on Cloudflare's edge, so this
+    # only affects your own manual testing.
+    region: frankfurt
+    dockerfilePath: ./apps/chaos-target/Dockerfile
+    dockerContext: .
+    # /ping is always 200. Never point this at /scheduled: Render would restart the service
+    # during every planned outage.
+    healthCheckPath: /ping
+    # Deploy only after GitHub checks (CI) pass on the commit.
+    autoDeployTrigger: checksPass
+    # Rebuild only when something the image uses changes.
+    buildFilter:
+      paths:
+        - apps/chaos-target/**
+        - package.json
+        - package-lock.json
+        - render.yaml
