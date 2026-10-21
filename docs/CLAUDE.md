@@ -144,7 +144,9 @@ TypeScript `strict`, no `any` without a comment explaining why. Feature folders.
 npm ci
 npm run typecheck && npm run lint && npm test
 npm run format                           # Prettier --write; `lint` runs Prettier --check
-npm run dev -w apps/app                  # wrangler dev: Worker + local D1 + static assets
+npm run dev -w apps/app                  # wrangler dev: Worker + local D1 + the last React build
+npm run dev:web -w apps/app              # Vite with hot reload; proxies /api to wrangler dev on :8787
+npm run build -w apps/app                # vite build into dist/client, then a wrangler dry run
 npm run cf-typegen -w apps/app           # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 npx wrangler d1 migrations apply uptime --local   # run from apps/app
 npx wrangler dev --test-scheduled         # from apps/app; then GET /__scheduled runs one tick

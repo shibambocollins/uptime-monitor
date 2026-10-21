@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { runTick } from './checker/tick';
+import { spikeCookie } from './spike/cookie';
 
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/api/v1/health', (c) => c.json({ status: 'ok' }));
+// SPIKE (Phase 0 P7, remove after Phase 0).
+app.route('/api/v1/spike', spikeCookie);
 
 export default {
   fetch: app.fetch,
