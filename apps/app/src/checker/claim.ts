@@ -27,8 +27,11 @@ interface ClaimedRow {
  * running no longer sees them as due. D1 runs statements one at a time, so two ticks can't
  * claim the same row.
  *
- * Pass the cron's scheduled time as `now`, not the clock: the next run then lands exactly
- * on a later cron minute, and late or early firing doesn't push a check into the next tick.
+ * Pass the cron's scheduled time as `now`, not the clock: the next run then equals a later
+ * tick's scheduled time exactly, and a tick that starts late or early doesn't push a check
+ * into the following tick. Cloudflare does not schedule on the minute boundary: in
+ * production every tick of this Worker was scheduled at the same offset (:45.457,
+ * 2026-10-21), so the arithmetic stays aligned as long as that offset holds.
  *
  * One row written per claimed monitor. No index on next_run_at, so the inner SELECT scans
  * the table (rows read, not written; CLAUDE.md §5).

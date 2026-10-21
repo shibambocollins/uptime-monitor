@@ -23,8 +23,9 @@
     {
       "binding": "DB",
       "database_name": "uptime",
-      // No database_id yet: it is added in Phase 0 step 6 after `wrangler d1 create uptime`.
-      // Local dev and tests use a local SQLite file and don't need it.
+      // Created 2026-10-21 (region WEUR). The id is not a secret: it only works with an
+      // API token for this account. Local dev and tests use a local SQLite file instead.
+      "database_id": "02a657df-ded5-4819-af0d-38cfe3ebd215",
       "migrations_dir": "migrations",
     },
   ],
