@@ -54,20 +54,21 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
 - [x] **Step 2: `ci/build`**
   - [x] `.github/workflows/ci.yml`: runs on `pull_request` and on `push` to `main`; `actions/setup-node` with Node 22 and the npm cache; `npm ci`, typecheck, lint, test, build; `permissions: contents: read`. First green run 2026-10-19 (PR #4 and `main`).
   - [ ] After the first green run, protect `main`: require the CI checks (`typecheck, lint, test, build` and, from step 3, `chaos-target Docker image`), block force-pushes.
-- [ ] **Step 3: `feat/chaos-target`**
+- [x] **Step 3: `feat/chaos-target`**
   - [x] Node + Hono service (`apps/chaos-target`), run by Node's type stripping with no build step: `/ping` (always 200, the Render health check), `/delay/:ms` (≤ 30 s), `/status/:code` (200-599), `/scheduled` (a 2-hour cycle anchored to the epoch: UP 60, DOWN 20, UP 10, SLOW 15 at 3 s, UP 5, FLAPPING 10 min), and `/schedule` (ground truth: phase windows for a range, plus `bootedAt` so Render restarts can be told apart from planned outages).
   - [x] Unit tests for the schedule logic and every route (fake clock, no real waiting).
   - [x] `Dockerfile` (repo root as context, only this workspace's production dependencies), `.dockerignore`, `render.yaml` Blueprint, and a CI job that builds the image and smoke-tests it.
-  - [ ] Deploy to Render free from the Blueprint; record the URL here. It stays awake as long as it is checked more often than every 15 minutes.
-- [ ] **Step 4: `feat/checker-cron`**
-  - [ ] D1 migrations for the subset of the real schema the checker needs: `monitors`, `check_rollups_hourly`, `check_events`, `usage_daily`. No index on `monitors(next_run_at)` or `lease_until`; `check_rollups_hourly` is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)` (CLAUDE.md §5: index writes count toward the cap). If D1 rejects `WITHOUT ROWID`, use a normal table and expect one extra row written per monitor per hour.
-  - [ ] `scheduled()` handler: one conditional `UPDATE` claims due monitors (advances `next_run_at`, sets `lease_until`); checks run with concurrency ≤ 6 and the timer starting when each request actually starts; one `db.batch()` writes rollups, changed monitor rows and failure events; one structured log line per tick (duration, checks, failures, CPU-relevant counts, rows written).
-  - [ ] Spike-only switch (env var) for 1 vs 40 checks per tick and for a slow tick (P4, P6).
-  - [ ] Tests with `@cloudflare/vitest-plugin`: claim skips leased monitors; rollup upsert; outbound `fetch` mocked.
+  - [x] Deployed to Render free from the Blueprint on 2026-10-21 (no card asked): **https://uptime-chaos-target.onrender.com**. Every route checked from outside. It stays awake as long as it is checked more often than every 15 minutes. After it has slept, the first checks time out while it wakes (seen locally on 2026-10-21: three 10 s timeouts), so a Render restart looks like an outage. `bootedAt` in `/schedule` tells the two apart.
+- [x] **Step 4: `feat/checker-cron`**
+  - [x] D1 migration `apps/app/migrations/0001_checker.sql`: `monitors`, `check_rollups_hourly`, `check_events`, `usage_daily`. Only primary keys, no other index. There is no `lease_until` column: the claim moves `next_run_at` one interval ahead, and that is the lease. `check_rollups_hourly` and `usage_daily` are `WITHOUT ROWID`. Local D1 accepts it; confirm on remote D1 in step 6. If remote rejects it, use a normal table and expect one extra row written per monitor per hour.
+  - [x] `scheduled()` handler (`apps/app/src/checker/`): one `UPDATE … RETURNING` claims due monitors, using the cron's scheduled time so the next run lands on an exact cron minute; checks run at most 6 at a time, each timer starting when its own request starts; the state machine (`applyCheck` in `packages/core`) decides what changed; one `db.batch()` writes rollups, changed monitor rows and events for failures and state changes; one usage upsert; one log object per tick with claims, failures, transitions, statement count, rows written per statement kind (from D1's own `meta`), rows read and latency p50/p95/max.
+  - [x] Switches (vars in `wrangler.jsonc`): `MAX_CHECKS_PER_TICK` (1 to 40, default 40) for the P4 baseline; `SPIKE_SLOW_TICK_MS` (spike only, remove after Phase 0) for P6.
+  - [x] Tests in workerd against the real migration: claim takes only due, enabled monitors and won't hand one out twice; limit and ordering; rollup upsert accumulates within an hour; DOWN after 3 failures; recovery event; slow vs failed; an overlapping tick checks nothing twice (P6); concurrency never above 6 and queueing doesn't inflate latency (P4). Outbound `fetch` is injected and faked.
+  - [x] Local run against the live chaos-target with `wrangler dev --test-scheduled`. Local D1 reports 2 rows written per healthy check (claim 1, rollup 1) and 4 per failure (plus monitor row and event). Local accounting may differ from production; P5 decides.
 - [ ] **Step 5: `spike/same-origin`**
   - [ ] Minimal React (Vite) page served from the `app` Worker's static assets; a spike route sets a test cookie and a second route echoes whether it arrived (P7).
 - [ ] **Step 6: Deploy** (configuration only, no branch needed)
-  - [ ] `wrangler d1 create`, `wrangler d1 migrations apply <db> --remote`, `wrangler secret put` for any secret, `wrangler deploy`.
+  - [ ] `wrangler d1 create uptime` and put its `database_id` in `apps/app/wrangler.jsonc`; `wrangler d1 migrations apply uptime --remote` (this is where remote D1 confirms or rejects `WITHOUT ROWID`); `wrangler secret put` for any secret; `wrangler deploy`.
   - [ ] Seed 40 monitors pointing at `chaos-target` routes.
 - [ ] **Step 7: Run the tests**
   - [ ] P7 in a browser. P6 with the slow-tick switch.

@@ -10,4 +10,25 @@
   "observability": {
     "enabled": true,
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "uptime",
+      // No database_id yet: it is added in Phase 0 step 6 after `wrangler d1 create uptime`.
+      // Local dev and tests use a local SQLite file and don't need it.
+      "migrations_dir": "migrations",
+    },
+  ],
+  // The checker runs every minute (CLAUDE.md §5).
+  "triggers": {
+    "crons": ["* * * * *"],
+  },
+  "vars": {
+    // Upper bound on checks per tick. 50 subrequests per invocation, minus room for
+    // alert calls, puts the ceiling at about 40.
+    "MAX_CHECKS_PER_TICK": "40",
+    // SPIKE (Phase 0 P6 only, remove after): wait this long between running the checks and
+    // writing results, so a tick can be made to outlast the next cron firing.
+    "SPIKE_SLOW_TICK_MS": "0",
+  },
 }
