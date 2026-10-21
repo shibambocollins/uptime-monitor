@@ -14,7 +14,7 @@ A platform that monitors deployed applications (synthetic / black-box monitoring
 **Differentiator:** a `chaos-target` service that goes down, slows down, and flaps on a schedule. We measure the platform against it: time-to-detect, false-alert rate, missed-incident rate.
 
 ## 2. Current status
-Pre-code. **Phase 0 (spike) comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
+Phase 0 (spike) in progress: scaffold, CI, `chaos-target` and the checker are built; deploy and measurements next. **Phase 0 comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
 
 ## 3. Decisions made (do not relitigate without a reason; see DECISIONS.md)
 **Chosen: Option B — Cloudflare-native TypeScript** (switched from Option A on 2026-10-19; reasons in DECISIONS.md §10).
@@ -31,7 +31,7 @@ Pre-code. **Phase 0 (spike) comes before any feature work.** See section 4 and t
 | Alerts | Discord webhooks (primary) and email via a provider's HTTP API (owner-only, no domain). Team-level channels plus per-user subscriptions, with per-project and per-monitor rules |
 | Structure | Team → Project → Monitors (endpoints). Project health = worst-of its monitors |
 | Validation | Zod schemas at the API boundary; OpenAPI generated from them (`@hono/zod-openapi`; verify current package) |
-| Tests | Vitest. Pure domain tests in plain Node; Worker and D1 tests with `@cloudflare/vitest-plugin` (runs in the Workers runtime; formerly `@cloudflare/vitest-pool-workers`, renamed and deprecated). Mock outbound `fetch` the way that package currently recommends (verify) |
+| Tests | Vitest. Pure domain tests in plain Node; Worker and D1 tests with `@cloudflare/vitest-plugin` (runs in the Workers runtime; formerly `@cloudflare/vitest-pool-workers`, renamed and deprecated). Outbound `fetch` is passed into the checker as a dependency and faked in tests (version 1.4.4 no longer exports the old `fetchMock`). Import `env` and `exports` from `cloudflare:workers`; `env` and `SELF` from `cloudflare:test` are deprecated |
 | Repo layout | npm workspaces: `apps/app` (Worker + React), `apps/chaos-target`, `packages/core` (pure domain), `contract-tests/*.json` |
 
 **Not in scope / rejected:** Kafka, Kubernetes, microservices, AI features, SMS, WhatsApp, Telegram (see DECISIONS.md), Azure and Oracle (card required), Cloudflare Pages for the frontend (cross-site cookies), SMTP (blocked on Render free; port 25 blocked for Workers sockets; no domain anyway).
@@ -45,7 +45,7 @@ Deploy a skeleton `app` Worker with a cron, D1, and a `chaos-target` on Render. 
 ```
 Cron Trigger (every minute)
    → app Worker: scheduled()
-      → claim due monitors (conditional UPDATE sets a lease; overlapping runs skip leased rows)
+      → claim due monitors (one UPDATE moves next_run_at an interval ahead; that is the lease, so overlapping runs skip them)
       → run checks with fetch() (concurrency ≤ 6, per-check timeout, overall time budget)
       → one db.batch(): results, monitor state, incidents, alert_events (outbox)
       → deliver pending alert_events (bounded per run, retries with backoff)
@@ -61,11 +61,11 @@ Render free → chaos-target (a fixture we monitor like any external site)
 **Design rules that follow:**
 - **Checks per tick:** at most about 40 (subrequest budget, minus alert calls). Cap concurrency at 6 ourselves and start the latency timer when the request actually starts, otherwise queueing inflates latency and causes false SLOW alerts.
 - **Queries per tick:** use `db.batch()`. Whether a batch counts as one query or many toward the 50 is unverified; the spike measures it.
-- **Write budget is the binding limit.** Target ≤ 2 rows written per check in the steady state: the claim `UPDATE` (advances `next_run_at` and sets `lease_until` in one statement, so it doubles as the lease) and one hourly rollup upsert (count, failures, latency histogram buckets). The monitor row is rewritten again only when state or counters change; raw check rows are stored only for failures and state changes. Deletes cost writes too, so retention removes rollups and raw failure rows, never per-check rows.
+- **Write budget is the binding limit.** Target ≤ 2 rows written per check in the steady state: the claim `UPDATE` (advances `next_run_at`, which doubles as the lease: there is no separate `lease_until` column, because a claimed monitor is no longer due) and one hourly rollup upsert (count, failures, latency histogram buckets). The monitor row is rewritten again only when state or counters change; raw check rows are stored only for failures and state changes. Deletes cost writes too, so retention removes rollups and raw failure rows, never per-check rows.
 - **Indexes cost writes.** D1 adds at least one row written whenever a write touches an indexed column (fact, D1 pricing docs). So:
-  - **No index on `next_run_at` or `lease_until`.** The claim changes both on every check; an index would make it 3+ rows per check. The claim scans the `monitors` table instead, which costs reads: 100 monitors × 1,440 ticks = 144,000 rows read/day (3% of the 5M cap). Revisit at about 1,000 monitors (about 29%).
-  - **`check_rollups_hourly` has `PRIMARY KEY (monitor_id, hour)` and is `WITHOUT ROWID`**, so the key is the table and there is no separate index to write (inference from SQLite; verify D1 supports `WITHOUT ROWID`). An upsert into an existing hour then writes exactly one row.
-  - **Counters must not change in a steady state.** `consecutive_failures` stays 0 while UP; `consecutive_successes` is counted only while DOWN. Otherwise the monitor row is rewritten on every check.
+  - **No index on `next_run_at`.** The claim changes it on every check; an index would make it 3+ rows per check. The claim scans the `monitors` table instead, which costs reads: 100 monitors × 1,440 ticks = 144,000 rows read/day (3% of the 5M cap). Revisit at about 1,000 monitors (about 29%).
+  - **`check_rollups_hourly` has `PRIMARY KEY (monitor_id, hour)` and is `WITHOUT ROWID`**, so the key is the table and there is no separate index to write (inference from SQLite). Local D1 accepts `WITHOUT ROWID` and reports 1 row written for the upsert, both for a new hour and an existing one (2026-10-21); confirm on remote D1 in Phase 0 step 6.
+  - **Counters must not change in a steady state.** Every counter counts only towards a pending transition and resets when it happens or when the streak breaks (`applyCheck` in `packages/core`). A monitor that stays UP and fast, DEGRADED and slow, or DOWN and failing keeps all three at 0. Otherwise the monitor row is rewritten on every check.
 - **Estimate:** at 2 rows/check, 100 monitors at 5-minute intervals write 100 × 288 × 2 = 57,600 rows/day, plus 1,440 for the per-tick `usage_daily` counter: about 59% of the cap. If one extra index row slips in (3 rows/check) it is about 88%, past the 80% guard below, so P5 in the spike is what proves the model. The old estimate (4 rows/check, "about 100 monitors") was wrong: 4 rows/check caps out at about 85 monitors.
 - **Daily-cap safety:** track rows written per day in a counter; above 80% of the cap, stretch intervals and alert the owner once, so the dashboard never hard-stops.
 - **Min monitor interval:** default 5 minutes; per-team monitor cap.
@@ -118,7 +118,7 @@ Test vectors live in `contract-tests/*.json` so a future port (for example back 
 Switch back only if the Phase 0 spike shows B cannot meet its pass criteria after the fixes in section 4. The full Option A plan and its Phase 0 checklist are in git history (commit `d1c9c73`) and DECISIONS.md. Findings that would apply on return: Render free blocks outbound SMTP; 750 free hours are per workspace (and `chaos-target` already uses them); Spring Boot 3.x is out of OSS support, so use 4.1.x. The pure domain and `contract-tests/*.json` make the port cheaper.
 
 ## 10. Data model (starting point; refine)
-`users`(github_id, ...), `sessions`(token_hash, user_id, expires_at), `teams`, `team_members(role)`, `projects(team_id, deleted_at)`, `monitors(project_id, url, interval_seconds, timeout_ms, latency_threshold_ms, expected_status, expected_text, state, consecutive_failures, consecutive_slow, consecutive_successes, last_checked_at, next_run_at, lease_until, dns_checked_at)`, `check_events(monitor_id, checked_at, success, status_code, response_ms, error)` (failures and state changes only), `check_rollups_hourly(monitor_id, hour, total, failures, latency buckets...)`, `incidents(monitor_id, started_at, resolved_at)`, `notification_channels`, `alert_rules`, `alert_events`, `alert_deliveries`, `api_keys(prefix, hash, team_id, last_used_at, revoked_at)`, `usage_daily(day, rows_written)`. Every index costs a row written when its columns change (section 5), so add indexes only on columns that rarely change: none on `monitors(next_run_at)` or `lease_until`; `check_rollups_hourly` is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)`. Soft-delete projects; purge after a retention period.
+`users`(github_id, ...), `sessions`(token_hash, user_id, expires_at), `teams`, `team_members(role)`, `projects(team_id, deleted_at)`, `monitors(project_id, url, interval_seconds, timeout_ms, latency_threshold_ms, expected_status, expected_text, state, consecutive_failures, consecutive_slow, consecutive_successes, last_checked_at, next_run_at, dns_checked_at)`, `check_events(monitor_id, checked_at, success, status_code, response_ms, error)` (failures and state changes only), `check_rollups_hourly(monitor_id, hour, total, failures, latency buckets...)`, `incidents(monitor_id, started_at, resolved_at)`, `notification_channels`, `alert_rules`, `alert_events`, `alert_deliveries`, `api_keys(prefix, hash, team_id, last_used_at, revoked_at)`, `usage_daily(day, rows_written)`. Every index costs a row written when its columns change (section 5), so add indexes only on columns that rarely change: none on `monitors(next_run_at)`; `check_rollups_hourly` is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)`. Soft-delete projects; purge after a retention period.
 
 ## 11. Observability of the platform itself
 Structured JSON logs (`console.log` of one object per event) with a correlation id per tick and per check; Workers Logs and the Workers/D1 dashboards for CPU time, invocations, and rows written. A `GET /api/v1/health` endpoint. Each tick records its stats (duration, checks run, failures, alerts sent, rows written) in the logs and the `usage_daily` counter. **Dead man's switch:** the cron cannot report that it stopped running, so an outside free service should watch for missing ticks (candidate: a heartbeat-monitoring service with a card-free free tier; verify before choosing). A monitoring tool must be monitorable.
@@ -146,8 +146,9 @@ npm run typecheck && npm run lint && npm test
 npm run format                           # Prettier --write; `lint` runs Prettier --check
 npm run dev -w apps/app                  # wrangler dev: Worker + local D1 + static assets
 npm run cf-typegen -w apps/app           # regenerate worker-configuration.d.ts after editing wrangler.jsonc
-npx wrangler d1 migrations apply <db> --local
-npm run dev -w apps/chaos-target         # from step 3
+npx wrangler d1 migrations apply uptime --local   # run from apps/app
+npx wrangler dev --test-scheduled         # from apps/app; then GET /__scheduled runs one tick
+npm run dev -w apps/chaos-target
 ```
 `worker-configuration.d.ts` is generated (gitignored); `npm run typecheck` regenerates it.
 Develop locally with `wrangler dev` first. Hosting is only needed for Phase 0 and the final deploy.
