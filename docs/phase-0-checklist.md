@@ -65,10 +65,11 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] Switches (vars in `wrangler.jsonc`): `MAX_CHECKS_PER_TICK` (1 to 40, default 40) for the P4 baseline; `SPIKE_SLOW_TICK_MS` (spike only, remove after Phase 0) for P6.
   - [x] Tests in workerd against the real migration: claim takes only due, enabled monitors and won't hand one out twice; limit and ordering; rollup upsert accumulates within an hour; DOWN after 3 failures; recovery event; slow vs failed; an overlapping tick checks nothing twice (P6); concurrency never above 6 and queueing doesn't inflate latency (P4). Outbound `fetch` is injected and faked.
   - [x] Local run against the live chaos-target with `wrangler dev --test-scheduled`. Local D1 reports 2 rows written per healthy check (claim 1, rollup 1) and 4 per failure (plus monitor row and event). Local accounting may differ from production; P5 decides.
-- [ ] **Step 5: `spike/same-origin`**
-  - [ ] Minimal React (Vite) page served from the `app` Worker's static assets; a spike route sets a test cookie and a second route echoes whether it arrived (P7).
-- [ ] **Step 6: Deploy** (configuration only, no branch needed)
-  - [ ] `wrangler d1 create uptime` and put its `database_id` in `apps/app/wrangler.jsonc`; `wrangler d1 migrations apply uptime --remote` (this is where remote D1 confirms or rejects `WITHOUT ROWID`); `wrangler secret put` for any secret; `wrangler deploy`.
+- [x] **Step 5: `spike/same-origin`**
+  - [x] Minimal React 19 + Vite 8 page in `apps/app/web/`, built into `apps/app/dist/client` and served by the Worker as static assets (`assets` in `wrangler.jsonc`: SPA fallback for unknown paths, `run_worker_first` for `/api/*` so an API 404 never turns into `index.html`). Plain Vite, not `@cloudflare/vite-plugin`: production is identical (one Worker, one origin), and the plugin mostly changes the dev setup; revisit when the real frontend starts.
+  - [x] Spike routes (`apps/app/src/spike/cookie.ts`, remove after Phase 0): `POST /api/v1/spike/cookie` sets `__Host-spike_session` (`HttpOnly; Secure; SameSite=Lax; Path=/`, 10 minutes), `GET` reports `{ received }` without echoing the value, `DELETE` clears it. Tests check the attributes and the round trip; checked locally on `wrangler dev` with curl on 2026-10-21. The browser half of P7 is step 7, on the deployed `*.workers.dev` URL (real HTTPS).
+- [ ] **Step 6: Deploy** (the `database_id` change needs a small branch, e.g. `chore/deploy`; everything else is commands)
+  - [ ] `wrangler d1 create uptime` and put its `database_id` in `apps/app/wrangler.jsonc`; `wrangler d1 migrations apply uptime --remote` (this is where remote D1 confirms or rejects `WITHOUT ROWID`); `wrangler secret put` for any secret; `npm run deploy -w apps/app` (builds the React page, then `wrangler deploy`).
   - [ ] Seed 40 monitors pointing at `chaos-target` routes.
 - [ ] **Step 7: Run the tests**
   - [ ] P7 in a browser. P6 with the slow-tick switch.

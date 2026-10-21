@@ -10,6 +10,15 @@
   "observability": {
     "enabled": true,
   },
+  // The React build (vite.config.mts), served from the same origin as the API, so the session
+  // cookie is first-party and there is no CORS (CLAUDE.md §3). Asset requests are free.
+  "assets": {
+    "directory": "./dist/client",
+    // Unknown paths get index.html, so client-side routes work on reload.
+    "not_found_handling": "single-page-application",
+    // The API always reaches the Worker, even if a built file had a matching path.
+    "run_worker_first": ["/api/*"],
+  },
   "d1_databases": [
     {
       "binding": "DB",
