@@ -22,7 +22,7 @@ export default {
         // Workers Logs indexes the fields of a logged object (CLAUDE.md §11).
         log: (entry) => console.log(entry),
         tickId,
-        maxChecks: readIntVar(env.MAX_CHECKS_PER_TICK, 40),
+        maxChecks: readIntVar(env.MAX_CHECKS_PER_TICK, 10),
         slowTickMs: readIntVar(env.SPIKE_SLOW_TICK_MS, 0),
       });
     } catch (error) {

@@ -73,17 +73,21 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] **Remote D1 accepts `WITHOUT ROWID`:** `sqlite_master` shows `check_rollups_hourly` and `usage_daily` as `WITHOUT ROWID`, and none of our tables has an index (only D1's own `d1_migrations` does).
   - [x] Seeded 40 monitors with `apps/app/scripts/phase0-seed.sql`, all **disabled** (40 enabled at 60 s would hit the write cap in under a day): 1-20 `/delay/500` (P4), 21-30 `/scheduled`, 31-40 `/ping`. D1 reported 40 rows written for the 40 inserts, so a plain insert into `monitors` costs exactly one row.
   - [x] **Cron timing (fact, observed):** ticks run every minute, but not on the minute: every `scheduledTime` was at :45.457, and the handler started 1.1-2.0 s after it. An idle tick used 1-3 ms CPU and about 0.5 s wall time (mostly the two D1 round trips). New cron triggers took a few minutes to start firing after the first deploy.
-- [ ] **Step 7: Run the tests**
-  - [ ] P7 in a browser. P6 with the slow-tick switch.
-  - [ ] Burst: 1 hour at 40 checks per tick, plus 10 minutes at 1 check per tick for the P4 baseline (P2, P3, P4).
-  - [ ] Soak: 24 hours at 10 checks per tick (P1, P5, P8).
-- [ ] **Step 8: Probes** (not pass criteria; they settle open items cheaply)
-  - [ ] **SSRF facts:** what does a Worker's `fetch()` do with `http://127.0.0.1/`, `http://10.0.0.1/`, `http://169.254.169.254/`, `http://[::1]/`? Record the exact result for the README.
-  - [ ] **`db.batch()`:** does a batch of 60 statements hit the 50-queries-per-invocation limit?
-  - [ ] **Index write cost:** on a scratch table, compare D1's rows-written for an `UPDATE` of an indexed column versus an unindexed one, so the per-check figure is understood rather than assumed.
-  - [ ] **Email:** one send through a provider's HTTP API to your own address from the Worker. Record the provider, whether signup needed a card, and the free daily cap.
-  - [ ] **GitHub OAuth:** does GitHub support PKCE for OAuth Apps today? (Read GitHub's docs.)
-  - [ ] **Dead man's switch:** find a heartbeat-monitoring service with a card-free free tier (CLAUDE.md §11).
+- [ ] **Step 7: Run the tests** (2026-10-21; results in section 6)
+  - [x] P7 in a browser on the deployed URL (you, 2026-10-21): `received: true`, cookie flags correct.
+  - [x] P6: deployed once with `--var SPIKE_SLOW_TICK_MS:70000` and 5 monitors at 300 s. The 17:49:45 tick claimed them and ran 80.7 s; the next three ticks started while it was still running and each claimed 0.
+  - [x] P4: two 11-minute runs against `/delay/500` only, because the tick log has per-tick latency (p50/p95/max), not per-check: all 40 monitors, then monitor 1 alone.
+  - [x] Burst: the seeded mix, 40 checks per tick, 18:18-19:09 UTC (51 of the planned 63 minutes: Claude Code stopped the local job driving it because the PC was low on memory, so the final "disable everything" step was run by hand). D1 recorded every tick, including chaos-target's DOWN window from 19:00. `wrangler tail` dropped 16 of 53 tick events under load, so counts come from D1, not the tail.
+  - [ ] Soak: 24 hours at 10 checks per tick, started 2026-10-21 19:12:11 UTC with monitors 21-25 (`/scheduled`) and 31-35 (`/ping`). Baseline at start (`usage_daily` for 2026-10-21): 105 ticks, 2,501 checks, 5,140 rows written. After 3 hours: 0 missed ticks, 2.22 rows per check.
+- [ ] **Step 8: Probes** (on a throwaway Worker, `uptime-probe`, with its own scratch D1, 2026-10-21; delete both after Phase 0)
+  - [x] **SSRF facts:** section 6.
+  - [x] **`db.batch()`:** batches of 60 statements succeeded in the burst (40 rollups + 10 monitor updates + 10 events, 19:00-19:02).
+  - [x] **Index write cost:** for 10 rows, an insert writes 10 rows without an index and 20 with one; an `UPDATE` of an indexed column 20, of an unindexed column on the same table 10; a `DELETE` 10 either way.
+  - [ ] **Email:** postponed until alerting is built (you, 2026-10-21). Resend's pricing page lists 100 emails/day and 3,000/month on the free plan; whether signup needs a card and whether you can send without a domain are still unverified.
+  - [x] **GitHub OAuth:** PKCE is supported for OAuth Apps: `code_challenge` with `code_challenge_method=S256` (`plain` is not supported) and `code_verifier` on the token request, all marked "Strongly recommended" (GitHub docs, "Authorizing OAuth apps", read 2026-10-21).
+  - [x] **Dead man's switch:** Healthchecks.io Hobbyist: free, 20 checks, signup with an email address and a magic link, no card mentioned on the pricing page (read 2026-10-21; confirm at signup).
+  - [x] **CPU profile** (added after P2 failed): section 6.
+  - [x] **Fan-out** (added after P2 failed): section 6.
 
 ## 5. If something fails
 
@@ -93,25 +97,43 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
 
 Write down which criterion failed and what you tried.
 
-## 6. Results (fill in)
+## 6. Results
 
 | # | Threshold | Measured | Pass? | Notes |
 |---|---|---|---|---|
-| P1 | ≥ 1,426 of 1,440 ticks | | | |
-| P2 | 0 CPU errors; p99 ≤ 7 ms at 40 checks | | | |
-| P3 | 0 subrequest / query-limit errors | | | |
-| P4 | p95 gap ≤ 200 ms (40 vs 1 check) | | | |
-| P5 | ≤ 2.5 rows written per check | | | |
-| P6 | 0 double checks | | | |
-| P7 | Cookie round-trips | | | |
-| P8 | ≤ 10,000 requests/day | | | |
+| P1 | ≥ 1,426 of 1,440 ticks | soak running | | 186 of 186 ticks in the first 3 hours |
+| P2 | 0 CPU errors; p99 ≤ 7 ms at 40 checks | 0 CPU errors, but **p99 29 ms** (median 18) at 40 checks; 4-7 ms at 1 check; 1-3 ms idle | **Fail** | Every 40-check tick ran 2-3× over the 10 ms limit and Cloudflare stopped none. Its docs only promise tolerance for "infrequent" overruns, so this is not safe to rely on. See "CPU" below. |
+| P3 | 0 subrequest / query-limit errors | 0 errors in about 60 ticks of 40 checks, including 60-statement batches | Pass, one part untested | The "+1 Discord call" is not tested: alerting is not built yet |
+| P4 | p95 gap ≤ 200 ms (40 vs 1 check) | 40 per tick: median of per-tick p95 **1,073 ms** (p50 698); 1 per tick: p95 **1,335 ms** (p50 795) | Pass | 40 at once was not slower: the concurrency cap and per-request timer work |
+| P5 | ≤ 2.5 rows written per check | burst 2.009; 40-check runs exactly 2.000; soak 2.22 after 3 h | soak running | Healthy checks cost exactly 2 rows on real D1 |
+| P6 | 0 double checks | 0 | Pass | Holds only while a monitor's interval is longer than the tick (see "Lease") |
+| P7 | Cookie round-trips | `received: true`, `HttpOnly; Secure; SameSite=Lax`, `__Host-` prefix | Pass | Browser, deployed HTTPS URL |
+| P8 | ≤ 10,000 requests/day | soak running | | Cron ticks are 1,440/day; fan-out calls are not counted as requests (Cloudflare pricing docs) |
 
-- `db.batch()` counts as:
-- `fetch()` to private / loopback addresses:
-- Email provider, card needed?, daily cap:
-- GitHub PKCE for OAuth Apps:
-- Dead man's switch service:
+**Other measurements (facts, 2026-10-21):**
+- **Time to detect:** chaos-target went DOWN at 19:00:00; the `/scheduled` monitors reached DOWN at 19:02:46 (60 s interval, 3 failures needed).
+- **False alerts:** 1 failed check in about 2,500 during the burst (a 502 from Render's proxy); the 3-failure rule absorbed it, no state change.
+- **Render sleep:** after 15 minutes without traffic, the first checks time out (5 of 5 in the P6 run). A sleeping chaos-target looks like an outage; `bootedAt` tells them apart.
+- **Lease:** a monitor whose interval is shorter than a tick is claimed again before the first tick writes its state. 40 checks that all time out can take about 70 s, so a per-tick time budget under the minimum interval is needed before 60 s monitors are allowed.
 
-**Decision:** ☐ Option B confirmed ☐ Work per tick reduced, re-run ☐ Write model changed, re-run ☐ Fall back to Option A
+**CPU** (probe Worker, warm HTTP invocations; cron ticks measured about 2× higher for the same work):
+- D1 is close to free: one query, or a batch of 40 statements, 0-1 ms.
+- `fetch()` is the cost: 40 checks 8-19 ms, about 0.25-0.45 ms each. Plain `http` costs the same as `https`, so it is not the TLS handshake. Nothing in our code can remove it.
+- So one invocation fits about 10 checks with headroom.
 
-Record the decision and the evidence in DECISIONS.md.
+**Fan-out** (probe Worker: a `WorkerEntrypoint` called through `ctx.exports`, which needs the `enable_ctx_exports` flag):
+- Each call is its own invocation with its own CPU time: 10 checks per call cost 1-3 ms and the caller 0-1 ms, against 10 ms for 40 checks in one invocation.
+- The subrequest limit is per invocation: 8 calls × 10 checks (80 `fetch()` calls) ran without errors.
+- The 6-connection limit is shared by the whole chain. With calls in parallel, latency to `/delay/500` rose from about 690 to about 2,050 ms (requests waiting inside the runtime count as latency). Called one after another, p50 was 688 ms, the same as a single check.
+- Not documented: whether Cloudflare *enforces* the 10 ms per invocation or per chain. The per-invocation CPU readings point to per invocation (inference). Calls through service bindings are not billed as requests (Cloudflare pricing docs).
+
+**Probes:**
+- `db.batch()`: a batch of 60 statements is fine (burst, 19:00-19:02).
+- `fetch()` to private / loopback addresses (with `global_fetch_strictly_public`): it does not throw. IP literals (`127.0.0.1`, `localhost`, `10.0.0.1`, `192.168.1.1`, `172.16.0.1`, `169.254.169.254`, `100.64.0.1`, `[::1]`, `[::ffff:127.0.0.1]`, `2130706433`, `0.0.0.0`) get **403 "error code: 1003"** from Cloudflare in 0-1 ms. Hostnames that resolve to private addresses (`localtest.me`, `127.0.0.1.nip.io`, `10.0.0.1.nip.io`, `169.254.169.254.nip.io`) get **530 "error code: 1016"**. No request reached a private address.
+- Email provider, card needed?, daily cap: postponed (Resend lists 100/day; card and no-domain sending unverified).
+- GitHub PKCE for OAuth Apps: supported, S256 only.
+- Dead man's switch service: Healthchecks.io Hobbyist (free, 20 checks).
+
+**Decision:** ☐ Option B confirmed ☒ Work per tick reduced, re-run ☐ Write model changed, re-run ☐ Fall back to Option A
+
+Work per tick is reduced in two steps (CLAUDE.md §4, step 1). Now: `MAX_CHECKS_PER_TICK` defaults to 10 (the soak already runs at 10, so its results apply). Next (`feat/checker-fanout`): the tick hands groups of about 10 checks to a `CheckRunner` entrypoint, one call at a time, then a short burst re-checks P2 and P4 on the real cron. Record the final decision and the evidence in DECISIONS.md when Phase 0 closes.

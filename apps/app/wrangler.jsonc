@@ -34,9 +34,11 @@
     "crons": ["* * * * *"],
   },
   "vars": {
-    // Upper bound on checks per tick. 50 subrequests per invocation, minus room for
-    // alert calls, puts the ceiling at about 40.
-    "MAX_CHECKS_PER_TICK": "40",
+    // Upper bound on checks per tick. CPU decides it, not subrequests: each fetch() costs
+    // about 0.25-0.45 ms of the 10 ms per invocation, and a 40-check cron tick measured
+    // p99 29 ms (Phase 0, 2026-10-21). 10 keeps a tick inside the limit until checks are
+    // spread over separate invocations (docs/phase-0-checklist.md, section 6).
+    "MAX_CHECKS_PER_TICK": "10",
     // SPIKE (Phase 0 P6 only, remove after): wait this long between running the checks and
     // writing results, so a tick can be made to outlast the next cron firing.
     "SPIKE_SLOW_TICK_MS": "0",
