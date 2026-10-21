@@ -3,7 +3,11 @@ import { type ClaimedMonitor, claimDueMonitors } from './claim';
 import { buildWriteStatements, type EvaluatedCheck, type StatementKind } from './persist';
 import { type CheckDeps, type CheckResult, runChecks } from './run-checks';
 
-/** 50 subrequests per invocation on the free plan, minus room for alert calls (CLAUDE.md §5). */
+/**
+ * Never more than this, whatever MAX_CHECKS_PER_TICK says: 50 subrequests per invocation
+ * on the free plan, minus room for D1 and alert calls (CLAUDE.md §5). The CPU limit keeps
+ * the real setting much lower (wrangler.jsonc).
+ */
 export const HARD_MAX_CHECKS_PER_TICK = 40;
 
 export interface TickDeps extends CheckDeps {
