@@ -149,7 +149,9 @@ npm run dev:web -w apps/app              # Vite with hot reload; proxies /api to
 npm run build -w apps/app                # vite build into dist/client, then a wrangler dry run
 npm run cf-typegen -w apps/app           # regenerate worker-configuration.d.ts after editing wrangler.jsonc
 npx wrangler d1 migrations apply uptime --local   # run from apps/app
-npx wrangler dev --test-scheduled         # from apps/app; then GET /__scheduled runs one tick
+npx wrangler dev                          # from apps/app; then run one cron tick with:
+curl -X POST "http://127.0.0.1:8787/cdn-cgi/local/explorer/api/local/scheduled?worker=uptime-app" -H 'Content-Type: application/json' -d '{"cron":"* * * * *"}'
+                                         # (GET /__scheduled no longer works: the static assets' SPA fallback answers it)
 npm run dev -w apps/chaos-target
 ```
 `worker-configuration.d.ts` is generated (gitignored); `npm run typecheck` regenerates it.

@@ -15,7 +15,7 @@ export interface EvaluatedCheck {
   statusChanged: boolean;
 }
 
-export type StatementKind = 'rollup' | 'monitor' | 'event';
+export type StatementKind = 'rollup' | 'monitor' | 'event' | 'release';
 
 const ROLLUP_SQL = `
 INSERT INTO check_rollups_hourly
@@ -42,6 +42,22 @@ const EVENT_SQL = `
 INSERT INTO check_events
   (monitor_id, checked_at, success, status_code, response_ms, error, state)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`;
+
+const RELEASE_SQL = `
+UPDATE monitors SET next_run_at = ?1
+WHERE id IN (SELECT value FROM json_each(?2))`;
+
+/**
+ * Hands claimed-but-unchecked monitors back by making them due at `dueAt`, so the next tick
+ * picks them up instead of them waiting a whole interval. One row written per monitor.
+ */
+export function releaseStatement(
+  db: D1Database,
+  monitorIds: readonly number[],
+  dueAt: number,
+): D1PreparedStatement {
+  return db.prepare(RELEASE_SQL).bind(dueAt, JSON.stringify(monitorIds));
+}
 
 /**
  * Every write for one tick, to be sent as a single db.batch(). Per check: one rollup

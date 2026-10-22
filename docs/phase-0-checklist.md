@@ -78,7 +78,8 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] P6: deployed once with `--var SPIKE_SLOW_TICK_MS:70000` and 5 monitors at 300 s. The 17:49:45 tick claimed them and ran 80.7 s; the next three ticks started while it was still running and each claimed 0.
   - [x] P4: two 11-minute runs against `/delay/500` only, because the tick log has per-tick latency (p50/p95/max), not per-check: all 40 monitors, then monitor 1 alone.
   - [x] Burst: the seeded mix, 40 checks per tick, 18:18-19:09 UTC (51 of the planned 63 minutes: Claude Code stopped the local job driving it because the PC was low on memory, so the final "disable everything" step was run by hand). D1 recorded every tick, including chaos-target's DOWN window from 19:00. `wrangler tail` dropped 16 of 53 tick events under load, so counts come from D1, not the tail.
-  - [ ] Soak: 24 hours at 10 checks per tick, started 2026-10-21 19:12:11 UTC with monitors 21-25 (`/scheduled`) and 31-35 (`/ping`). Baseline at start (`usage_daily` for 2026-10-21): 105 ticks, 2,501 checks, 5,140 rows written. After 3 hours: 0 missed ticks, 2.22 rows per check.
+  - [x] First soak, 10 checks per tick, monitors 21-25 (`/scheduled`) and 31-35 (`/ping`), from 2026-10-21 19:12:11 UTC. **Stopped by mistake at 22:20:48 UTC:** the burst's local job had not actually been stopped (the notification said it was), and its last step disabled monitors 1-40, including these 10. Up to then: 1,890 checks, 2.21 rows per check. The cron itself kept running: 1,062 of 1,062 ticks by 2026-10-22 12:54 UTC, with nothing to check after 22:20.
+  - [ ] Soak of the fan-out checker (step 9): 24 hours, 20 monitors (IDs 101-120, `apps/app/scripts/phase0-soak.sql`), 20 checks per tick in 2 groups (P1, P5, P8).
 - [ ] **Step 8: Probes** (on a throwaway Worker, `uptime-probe`, with its own scratch D1, 2026-10-21; delete both after Phase 0)
   - [x] **SSRF facts:** section 6.
   - [x] **`db.batch()`:** batches of 60 statements succeeded in the burst (40 rollups + 10 monitor updates + 10 events, 19:00-19:02).
@@ -88,6 +89,14 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] **Dead man's switch:** Healthchecks.io Hobbyist: free, 20 checks, signup with an email address and a magic link, no card mentioned on the pricing page (read 2026-10-21; confirm at signup).
   - [x] **CPU profile** (added after P2 failed): section 6.
   - [x] **Fan-out** (added after P2 failed): section 6.
+- [ ] **Step 9: `feat/checker-fanout`** (CLAUDE.md §4: reduce work per tick)
+  - [x] `CheckRunner` (`apps/app/src/checker/runner.ts`), a `WorkerEntrypoint` that runs one group of checks. The tick calls it through `ctx.exports` for each group of 10, one group at a time (the 6-connection limit is shared by the chain). `ctx.exports` needs no flag from compatibility date 2025-11-17.
+  - [x] Tick deadline: a group only starts if it would finish within 50 s of the tick start even if every check timed out; the first group always runs. Claimed monitors that were not checked (deadline or a failed runner) are released (`next_run_at` back to the tick time), so the next tick takes them. This also closes the lease gap for 60 s monitors.
+  - [x] `MAX_CHECKS_PER_TICK` default back to 40 (hard cap 200; the deadline is the real limit).
+  - [x] Tests: groups of 10 run one at a time; the deadline stops further groups and releases their monitors; a failed runner releases its group without recording failures; `CheckRunner` through `exports` returns plain results; `scheduled()` end to end through `CheckRunner`.
+  - [x] Local run (`wrangler dev`, 2026-10-22): 25 monitors on chaos-target `/ping`, 3 groups, 25 checked, 0 runner errors, tick 1.5 s, p95 344 ms.
+  - [ ] Deploy, then a 30-minute burst at 40 checks per tick: re-check P2 (CPU per invocation) and P4 on the real cron.
+  - [ ] Then the 24-hour soak above.
 
 ## 5. If something fails
 
@@ -121,7 +130,7 @@ Write down which criterion failed and what you tried.
 - `fetch()` is the cost: 40 checks 8-19 ms, about 0.25-0.45 ms each. Plain `http` costs the same as `https`, so it is not the TLS handshake. Nothing in our code can remove it.
 - So one invocation fits about 10 checks with headroom.
 
-**Fan-out** (probe Worker: a `WorkerEntrypoint` called through `ctx.exports`, which needs the `enable_ctx_exports` flag):
+**Fan-out** (probe Worker: a `WorkerEntrypoint` called through `ctx.exports`; the probe set the `enable_ctx_exports` flag, but workerd reports it has been the default since compatibility date 2025-11-17):
 - Each call is its own invocation with its own CPU time: 10 checks per call cost 1-3 ms and the caller 0-1 ms, against 10 ms for 40 checks in one invocation.
 - The subrequest limit is per invocation: 8 calls × 10 checks (80 `fetch()` calls) ran without errors.
 - The 6-connection limit is shared by the whole chain. With calls in parallel, latency to `/delay/500` rose from about 690 to about 2,050 ms (requests waiting inside the runtime count as latency). Called one after another, p50 was 688 ms, the same as a single check.
