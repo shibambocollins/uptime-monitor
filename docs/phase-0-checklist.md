@@ -79,7 +79,7 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] P4: two 11-minute runs against `/delay/500` only, because the tick log has per-tick latency (p50/p95/max), not per-check: all 40 monitors, then monitor 1 alone.
   - [x] Burst: the seeded mix, 40 checks per tick, 18:18-19:09 UTC (51 of the planned 63 minutes: Claude Code stopped the local job driving it because the PC was low on memory, so the final "disable everything" step was run by hand). D1 recorded every tick, including chaos-target's DOWN window from 19:00. `wrangler tail` dropped 16 of 53 tick events under load, so counts come from D1, not the tail.
   - [x] First soak, 10 checks per tick, monitors 21-25 (`/scheduled`) and 31-35 (`/ping`), from 2026-10-21 19:12:11 UTC. **Stopped by mistake at 22:20:48 UTC:** the burst's local job had not actually been stopped (the notification said it was), and its last step disabled monitors 1-40, including these 10. Up to then: 1,890 checks, 2.21 rows per check. The cron itself kept running: 1,062 of 1,062 ticks by 2026-10-22 12:54 UTC, with nothing to check after 22:20.
-  - [ ] Soak of the fan-out checker (step 9): 24 hours, 20 monitors (IDs 101-120, `apps/app/scripts/phase0-soak.sql`), 20 checks per tick in 2 groups (P1, P5, P8).
+  - [ ] Soak of the fan-out checker (step 9): 24 hours, 20 monitors (IDs 101-120, `apps/app/scripts/phase0-soak.sql`), 20 checks per tick in 2 groups (P1, P5, P8). **Started 2026-10-22 14:08:43 UTC** on the PR #10 build. Baseline (`usage_daily` 2026-10-22 at start): 847 ticks, 1,120 checks, 2,478 rows written, 44,432 rows read. First ticks: 20 checked in 2 groups, tick CPU 4-5 ms, runners 2-3 ms.
 - [ ] **Step 8: Probes** (on a throwaway Worker, `uptime-probe`, with its own scratch D1, 2026-10-21; delete both after Phase 0)
   - [x] **SSRF facts:** section 6.
   - [x] **`db.batch()`:** batches of 60 statements succeeded in the burst (40 rollups + 10 monitor updates + 10 events, 19:00-19:02).
@@ -95,8 +95,9 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] `MAX_CHECKS_PER_TICK` default back to 40 (hard cap 200; the deadline is the real limit).
   - [x] Tests: groups of 10 run one at a time; the deadline stops further groups and releases their monitors; a failed runner releases its group without recording failures; `CheckRunner` through `exports` returns plain results; `scheduled()` end to end through `CheckRunner`.
   - [x] Local run (`wrangler dev`, 2026-10-22): 25 monitors on chaos-target `/ping`, 3 groups, 25 checked, 0 runner errors, tick 1.5 s, p95 344 ms.
-  - [ ] Deploy, then a 30-minute burst at 40 checks per tick: re-check P2 (CPU per invocation) and P4 on the real cron.
-  - [ ] Then the 24-hour soak above.
+  - [x] Deployed 2026-10-22 (PR #10). Burst 13:37-14:05 UTC, monitors 1-40 at 40 checks per tick (stopped by hand, in the foreground): 26 of 26 logged ticks checked 40 in 4 groups, 0 released, 0 runner errors, 0 exceptions in 131 invocations. **Runner CPU p50 3 ms, p99 9 ms, max 15. Tick CPU p50 8 ms, p99 16 ms**: the tick itself still went over 10 ms sometimes, although it makes no `fetch()` calls (it still evaluated all 40 checks and built one 50-statement batch). Latency: median of per-tick p50 679 ms, p95 990 ms (P4 still holds). 2.21 rows per check (a FLAPPING window fell inside the burst).
+  - [x] Fix (`fix/tick-cpu`): each `CheckRunner` call now also evaluates its group and writes its own atomic batch (`checker/group.ts`); the tick only claims, dispatches, releases and records usage. Rows written are unchanged (local run: 25 checks, 3 groups, 50 rows); D1 sees one batch per group instead of one per tick. Deploy after the soak, then a short burst re-checks the tick's CPU.
+  - [ ] The 24-hour soak (step 7).
 
 ## 5. If something fails
 

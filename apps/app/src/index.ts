@@ -20,7 +20,7 @@ export default {
       await runTick(controller.scheduledTime, {
         db: env.DB,
         // Each call is a separate invocation with its own CPU budget (checker/runner.ts).
-        runGroup: (monitors) => ctx.exports.CheckRunner.runChecks(monitors),
+        runGroup: (monitors) => ctx.exports.CheckRunner.checkGroup(monitors),
         now: () => Date.now(),
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         // Workers Logs indexes the fields of a logged object (CLAUDE.md §11).

@@ -1,12 +1,7 @@
-import { applyCheck, type CheckOutcome, statusChanged } from '@uptime/core';
 import { type ClaimedMonitor, claimDueMonitors } from './claim';
-import {
-  buildWriteStatements,
-  type EvaluatedCheck,
-  releaseStatement,
-  type StatementKind,
-} from './persist';
-import { type CheckResult, MAX_CONCURRENT_CHECKS } from './run-checks';
+import type { GroupResult } from './group';
+import { releaseStatement, type StatementKind } from './persist';
+import { MAX_CONCURRENT_CHECKS } from './run-checks';
 
 /**
  * Never more than this, whatever MAX_CHECKS_PER_TICK says. A request chain allows 32
@@ -26,8 +21,11 @@ export const CHECKS_PER_GROUP = 10;
  */
 export const TICK_DEADLINE_MS = 50_000;
 
-/** Runs one group of checks in a separate invocation (CheckRunner through ctx.exports). */
-export type RunGroup = (monitors: ClaimedMonitor[]) => Promise<CheckResult[]>;
+/**
+ * Checks and records one group in a separate invocation (CheckRunner.checkGroup through
+ * ctx.exports).
+ */
+export type RunGroup = (monitors: ClaimedMonitor[]) => Promise<GroupResult>;
 
 export interface TickDeps {
   db: D1Database;
@@ -37,7 +35,7 @@ export interface TickDeps {
   log: (entry: Record<string, unknown>) => void;
   tickId: string;
   maxChecks: number;
-  /** SPIKE (Phase 0 P6): pause before writing results. */
+  /** SPIKE (Phase 0 P6): pause after the groups, so the tick outlasts the next cron firing. */
   slowTickMs: number;
   /** Defaults to TICK_DEADLINE_MS; tests shorten it. */
   deadlineMs?: number;
@@ -70,9 +68,11 @@ ON CONFLICT (day) DO UPDATE SET
   rows_read = rows_read + excluded.rows_read`;
 
 /**
- * One cron tick: claim due monitors, check them in groups of CHECKS_PER_GROUP (one group
- * at a time, each in its own invocation), write everything in one batch, record usage,
- * log one line. Three D1 calls per tick: claim, batch, usage.
+ * One cron tick, kept to dispatching so its own CPU stays near idle cost: claim due
+ * monitors, hand them to CheckRunner in groups of CHECKS_PER_GROUP (one group at a time;
+ * each group checks, evaluates and writes its own results), release what wasn't checked,
+ * record usage, log one line. D1 calls: claim, one batch per group (made by the runners),
+ * a release if needed, usage.
  */
 export async function runTick(scheduledTime: number, deps: TickDeps): Promise<TickStats> {
   const startedAt = deps.now();
@@ -81,54 +81,44 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
 
   const claim = await claimDueMonitors(deps.db, scheduledTime, limit);
 
-  const results = new Map<number, CheckResult>();
+  const groupResults: GroupResult[] = [];
   let groups = 0;
   let runnerErrors = 0;
   for (const [index, group] of chunk(claim.monitors, CHECKS_PER_GROUP).entries()) {
     if (index > 0 && deps.now() + worstCaseMs(group) > deadline) break;
     groups++;
     try {
-      for (const result of await deps.runGroup(group)) results.set(result.monitorId, result);
+      groupResults.push(await deps.runGroup(group));
     } catch (error) {
       // The runner failing says nothing about the monitors, so they are released, not failed.
+      // Its batch is atomic, so a runner that failed before writing left nothing behind.
       runnerErrors++;
       deps.log({ event: 'runner_failed', tickId: deps.tickId, error: String(error) });
     }
   }
   if (deps.slowTickMs > 0) await deps.sleep(deps.slowTickMs);
 
-  const checks = claim.monitors.flatMap((monitor) => {
-    const result = results.get(monitor.id);
-    return result ? [evaluate(monitor, result)] : [];
-  });
-  const unchecked = claim.monitors.filter((monitor) => !results.has(monitor.id));
-
-  const { statements, kinds } = buildWriteStatements(deps.db, checks);
-  if (unchecked.length > 0) {
-    statements.push(
-      releaseStatement(
-        deps.db,
-        unchecked.map((m) => m.id),
-        scheduledTime,
-      ),
-    );
-    kinds.push('release');
-  }
-  const batch = statements.length > 0 ? await deps.db.batch(statements) : [];
+  const checkedIds = new Set(groupResults.flatMap((g) => g.checkedIds));
+  const unchecked = claim.monitors.filter((monitor) => !checkedIds.has(monitor.id));
 
   const rowsWritten = {
     claim: claim.meta.rows_written,
-    rollup: 0,
-    monitor: 0,
-    event: 0,
+    rollup: sum(groupResults, (g) => g.rowsWritten.rollup),
+    monitor: sum(groupResults, (g) => g.rowsWritten.monitor),
+    event: sum(groupResults, (g) => g.rowsWritten.event),
     release: 0,
     total: 0,
   };
-  let rowsRead = claim.meta.rows_read;
-  batch.forEach((result, i) => {
-    rowsWritten[kinds[i] as StatementKind] += result.meta.rows_written;
-    rowsRead += result.meta.rows_read;
-  });
+  let rowsRead = claim.meta.rows_read + sum(groupResults, (g) => g.rowsRead);
+  if (unchecked.length > 0) {
+    const release = await releaseStatement(
+      deps.db,
+      unchecked.map((m) => m.id),
+      scheduledTime,
+    ).run();
+    rowsWritten.release = release.meta.rows_written;
+    rowsRead += release.meta.rows_read;
+  }
   rowsWritten.total =
     rowsWritten.claim +
     rowsWritten.rollup +
@@ -138,24 +128,22 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
 
   await deps.db
     .prepare(USAGE_SQL)
-    .bind(utcDay(scheduledTime), checks.length, rowsWritten.total, rowsRead)
+    .bind(utcDay(scheduledTime), checkedIds.size, rowsWritten.total, rowsRead)
     .run();
 
   const stats: TickStats = {
     claimed: claim.monitors.length,
-    checked: checks.length,
+    checked: checkedIds.size,
     released: unchecked.length,
     groups,
     runnerErrors,
-    failures: checks.filter((c) => c.outcome === 'FAIL').length,
-    slow: checks.filter((c) => c.outcome === 'SLOW').length,
-    transitions: checks.flatMap((c) =>
-      c.transition ? [{ monitorId: c.result.monitorId, ...c.transition }] : [],
-    ),
-    statements: statements.length,
+    failures: sum(groupResults, (g) => g.failures),
+    slow: sum(groupResults, (g) => g.slow),
+    transitions: groupResults.flatMap((g) => g.transitions),
+    statements: sum(groupResults, (g) => g.statements),
     rowsWritten,
     rowsRead,
-    latencyMs: latencySummary(checks.map((c) => c.result)),
+    latencyMs: latencySummary(groupResults.flatMap((g) => g.latenciesMs)),
     durationMs: deps.now() - startedAt,
   };
   deps.log({
@@ -179,27 +167,12 @@ function worstCaseMs(group: readonly ClaimedMonitor[]): number {
   return rounds * Math.max(...group.map((m) => m.timeoutMs));
 }
 
-function evaluate(monitor: ClaimedMonitor, result: CheckResult): EvaluatedCheck {
-  const outcome: CheckOutcome = !result.success
-    ? 'FAIL'
-    : result.responseMs !== null && result.responseMs > monitor.latencyThresholdMs
-      ? 'SLOW'
-      : 'OK';
-  const step = applyCheck(monitor.status, outcome);
-  return {
-    result,
-    outcome,
-    before: monitor.status,
-    after: step.status,
-    transition: step.transition,
-    statusChanged: statusChanged(monitor.status, step.status),
-  };
+function sum<T>(items: readonly T[], value: (item: T) => number): number {
+  return items.reduce((total, item) => total + value(item), 0);
 }
 
-function latencySummary(results: readonly CheckResult[]): TickStats['latencyMs'] {
-  const sorted = results
-    .flatMap((r) => (r.responseMs === null ? [] : [r.responseMs]))
-    .sort((a, b) => a - b);
+function latencySummary(latenciesMs: readonly number[]): TickStats['latencyMs'] {
+  const sorted = [...latenciesMs].sort((a, b) => a - b);
   // Nearest-rank percentile.
   const at = (p: number) => sorted[Math.max(Math.ceil(p * sorted.length) - 1, 0)] ?? null;
   return { p50: at(0.5), p95: at(0.95), max: sorted.at(-1) ?? null };
