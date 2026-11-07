@@ -35,12 +35,9 @@ export interface TickDeps {
   db: D1Database;
   runGroup: RunGroup;
   now: () => number;
-  sleep: (ms: number) => Promise<void>;
   log: (entry: Record<string, unknown>) => void;
   tickId: string;
   maxChecks: number;
-  /** SPIKE (Phase 0 P6): pause after the groups, so the tick outlasts the next cron firing. */
-  slowTickMs: number;
   /** Defaults to TICK_DEADLINE_MS; tests shorten it. */
   deadlineMs?: number;
 }
@@ -100,7 +97,6 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
       deps.log({ event: 'runner_failed', tickId: deps.tickId, error: String(error) });
     }
   }
-  if (deps.slowTickMs > 0) await deps.sleep(deps.slowTickMs);
 
   const checkedIds = new Set(groupResults.flatMap((g) => g.checkedIds));
   const unchecked = claim.monitors.filter((monitor) => !checkedIds.has(monitor.id));

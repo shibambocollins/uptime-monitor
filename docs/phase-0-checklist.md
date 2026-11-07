@@ -153,9 +153,9 @@ How work per tick was reduced (CLAUDE.md §4, step 1): first a cap of 10 checks 
 
 ## 7. After Phase 0: remove the spike-only pieces
 
-One small branch (for example `chore/phase-0-cleanup`), before feature work:
-- [ ] `SPIKE_SLOW_TICK_MS` (`wrangler.jsonc` var, `slowTickMs` and `sleep` in `checker/tick.ts`, `index.ts` and tests).
-- [ ] The cookie spike: `apps/app/src/spike/`, its route in `index.ts`, `test/spike-cookie.spec.ts`, and `web/src/CookieSpike.tsx` (replace with a placeholder page until the real UI).
-- [ ] `apps/app/scripts/phase0-seed.sql` and `phase0-soak.sql`, and the 60 seeded monitors in the remote D1 (`DELETE FROM monitors WHERE id BETWEEN 1 AND 40 OR id BETWEEN 101 AND 120`; their rollups and events go with them via `ON DELETE CASCADE`).
-- [ ] The throwaway `uptime-probe` Worker and its `uptime-probe` D1 database (Cloudflare account, not the repo).
+Branch `chore/phase-0-cleanup`, 2026-11-07:
+- [x] `SPIKE_SLOW_TICK_MS` (`wrangler.jsonc` var, `slowTickMs` and `sleep` in `checker/tick.ts`, `index.ts` and tests). The P6 overlap test stays: it now starts the overlapping tick from inside a runner call.
+- [x] The cookie spike: `apps/app/src/spike/`, its route in `index.ts`, `test/spike-cookie.spec.ts`, and `web/src/CookieSpike.tsx`, replaced by a placeholder page (`web/src/App.tsx`).
+- [ ] `apps/app/scripts/phase0-seed.sql` and `phase0-soak.sql` (removed from the repo), and the 60 seeded monitors in the remote D1 (`DELETE FROM monitors WHERE id BETWEEN 1 AND 40 OR id BETWEEN 101 AND 120`; their rollups and events go with them via `ON DELETE CASCADE`).
+- [x] The throwaway `uptime-probe` Worker and its `uptime-probe` D1 database (Cloudflare account, not the repo), deleted 2026-11-07.
 - [ ] Keep `chaos-target` on Render: it is the product's differentiator, not a spike piece.

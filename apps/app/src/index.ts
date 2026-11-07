@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import { runTick } from './checker/tick';
-import { spikeCookie } from './spike/cookie';
 
 // A top-level export, so the tick can reach it through ctx.exports.
 export { CheckRunner } from './checker/runner';
@@ -8,8 +7,6 @@ export { CheckRunner } from './checker/runner';
 const app = new Hono<{ Bindings: Env }>();
 
 app.get('/api/v1/health', (c) => c.json({ status: 'ok' }));
-// SPIKE (Phase 0 P7, remove after Phase 0).
-app.route('/api/v1/spike', spikeCookie);
 
 export default {
   fetch: app.fetch,
@@ -22,12 +19,10 @@ export default {
         // Each call is a separate invocation with its own CPU budget (checker/runner.ts).
         runGroup: (monitors) => ctx.exports.CheckRunner.checkGroup(monitors),
         now: () => Date.now(),
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         // Workers Logs indexes the fields of a logged object (CLAUDE.md §11).
         log: (entry) => console.log(entry),
         tickId,
         maxChecks: readIntVar(env.MAX_CHECKS_PER_TICK, 40),
-        slowTickMs: readIntVar(env.SPIKE_SLOW_TICK_MS, 0),
       });
     } catch (error) {
       console.error({ event: 'tick_failed', tickId, error: String(error) });
