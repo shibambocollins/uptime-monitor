@@ -3,7 +3,8 @@ import { env, exports } from 'cloudflare:workers';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { claimDueMonitors } from '../src/checker/claim';
 import type { ClaimedMonitor } from '../src/checker/claim';
-import { type CheckResult, type FetchFn, runChecks } from '../src/checker/run-checks';
+import { checkGroup, type GroupResult } from '../src/checker/group';
+import type { FetchFn } from '../src/checker/run-checks';
 import { runTick, type TickDeps } from '../src/checker/tick';
 import worker from '../src/index';
 
@@ -49,7 +50,7 @@ function deps(fetch: FetchFn, overrides: Partial<TickDeps> = {}) {
     db: env.DB,
     // In production each group runs in a CheckRunner invocation; here the same code runs
     // in-process, with the fake fetch.
-    runGroup: (group) => runChecks(group, { fetch, now: () => tickDeps.now() }),
+    runGroup: (group) => checkGroup(group, { db: env.DB, fetch, now: () => tickDeps.now() }),
     now: () => T0,
     sleep: async () => {},
     log: (entry) => logs.push(entry),
@@ -243,26 +244,28 @@ describe('runTick', () => {
 });
 
 describe('runTick fan-out', () => {
-  /** A runGroup that answers 200 to everything and records what it was asked to do. */
+  /** A runGroup that reports every monitor as checked (writing nothing) and records the calls. */
   function recordingRunner(onCall?: (group: ClaimedMonitor[], call: number) => void) {
     const calls: number[][] = [];
     let inFlight = 0;
     let maxInFlight = 0;
-    const runGroup = async (group: ClaimedMonitor[]): Promise<CheckResult[]> => {
+    const runGroup = async (group: ClaimedMonitor[]): Promise<GroupResult> => {
       calls.push(group.map((m) => m.id));
       inFlight++;
       maxInFlight = Math.max(maxInFlight, inFlight);
       onCall?.(group, calls.length);
       await new Promise((resolve) => setTimeout(resolve, 1));
       inFlight--;
-      return group.map((m) => ({
-        monitorId: m.id,
-        checkedAt: T0,
-        success: true,
-        statusCode: 200,
-        responseMs: 50,
-        error: null,
-      }));
+      return {
+        checkedIds: group.map((m) => m.id),
+        failures: 0,
+        slow: 0,
+        transitions: [],
+        statements: 0,
+        rowsWritten: { rollup: 0, monitor: 0, event: 0 },
+        rowsRead: 0,
+        latenciesMs: group.map(() => 50),
+      };
     };
     return { runGroup, calls, maxInFlight: () => maxInFlight };
   }
@@ -323,10 +326,11 @@ describe('runTick fan-out', () => {
 });
 
 describe('CheckRunner', () => {
-  it('runs checks in its own invocation and returns plain results', async () => {
+  it('checks and records a group in its own invocation, returning plain stats', async () => {
     // An invalid URL makes fetch() throw at once, so this needs no network.
+    const id = await addMonitor({ url: 'not a url' });
     const monitor: ClaimedMonitor = {
-      id: 7,
+      id,
       url: 'not a url',
       timeoutMs: 1000,
       latencyThresholdMs: 2000,
@@ -334,10 +338,14 @@ describe('CheckRunner', () => {
       status: { state: 'UP', consecutiveFailures: 0, consecutiveSlow: 0, consecutiveSuccesses: 0 },
     };
 
-    const [result] = await exports.CheckRunner.runChecks([monitor]);
+    const result = await exports.CheckRunner.checkGroup([monitor]);
 
-    expect(result).toMatchObject({ monitorId: 7, success: false, statusCode: null });
-    expect(result?.error).toMatch(/^TypeError/);
+    expect(result).toMatchObject({ checkedIds: [id], failures: 1, latenciesMs: [] });
+    // The runner wrote the group itself: rollup + failure event (+ monitor row: counter 0 -> 1).
+    expect(result.rowsWritten).toEqual({ rollup: 1, monitor: 1, event: 1 });
+    expect(await all('SELECT monitor_id, error FROM check_events')).toEqual([
+      { monitor_id: id, error: expect.stringMatching(/^TypeError/) },
+    ]);
   });
 });
 
