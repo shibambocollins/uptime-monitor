@@ -73,13 +73,13 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] **Remote D1 accepts `WITHOUT ROWID`:** `sqlite_master` shows `check_rollups_hourly` and `usage_daily` as `WITHOUT ROWID`, and none of our tables has an index (only D1's own `d1_migrations` does).
   - [x] Seeded 40 monitors with `apps/app/scripts/phase0-seed.sql`, all **disabled** (40 enabled at 60 s would hit the write cap in under a day): 1-20 `/delay/500` (P4), 21-30 `/scheduled`, 31-40 `/ping`. D1 reported 40 rows written for the 40 inserts, so a plain insert into `monitors` costs exactly one row.
   - [x] **Cron timing (fact, observed):** ticks run every minute, but not on the minute: every `scheduledTime` was at :45.457, and the handler started 1.1-2.0 s after it. An idle tick used 1-3 ms CPU and about 0.5 s wall time (mostly the two D1 round trips). New cron triggers took a few minutes to start firing after the first deploy.
-- [ ] **Step 7: Run the tests** (2026-10-21; results in section 6)
+- [x] **Step 7: Run the tests** (2026-10-21 to 2026-11-07; results in section 6)
   - [x] P7 in a browser on the deployed URL (you, 2026-10-21): `received: true`, cookie flags correct.
   - [x] P6: deployed once with `--var SPIKE_SLOW_TICK_MS:70000` and 5 monitors at 300 s. The 17:49:45 tick claimed them and ran 80.7 s; the next three ticks started while it was still running and each claimed 0.
   - [x] P4: two 11-minute runs against `/delay/500` only, because the tick log has per-tick latency (p50/p95/max), not per-check: all 40 monitors, then monitor 1 alone.
   - [x] Burst: the seeded mix, 40 checks per tick, 18:18-19:09 UTC (51 of the planned 63 minutes: Claude Code stopped the local job driving it because the PC was low on memory, so the final "disable everything" step was run by hand). D1 recorded every tick, including chaos-target's DOWN window from 19:00. `wrangler tail` dropped 16 of 53 tick events under load, so counts come from D1, not the tail.
   - [x] First soak, 10 checks per tick, monitors 21-25 (`/scheduled`) and 31-35 (`/ping`), from 2026-10-21 19:12:11 UTC. **Stopped by mistake at 22:20:48 UTC:** the burst's local job had not actually been stopped (the notification said it was), and its last step disabled monitors 1-40, including these 10. Up to then: 1,890 checks, 2.21 rows per check. The cron itself kept running: 1,062 of 1,062 ticks by 2026-10-22 12:54 UTC, with nothing to check after 22:20.
-  - [ ] Soak of the fan-out checker (step 9): 24 hours, 20 monitors (IDs 101-120, `apps/app/scripts/phase0-soak.sql`), 20 checks per tick in 2 groups (P1, P5, P8). **Started 2026-10-22 14:08:43 UTC** on the PR #10 build. Baseline (`usage_daily` 2026-10-22 at start): 847 ticks, 1,120 checks, 2,478 rows written, 44,432 rows read. First ticks: 20 checked in 2 groups, tick CPU 4-5 ms, runners 2-3 ms.
+  - [x] Soak of the fan-out checker (step 9): 20 monitors (IDs 101-120, `apps/app/scripts/phase0-soak.sql`), 20 checks per tick in 2 groups (P1, P5, P8), on the PR #10 build. Planned for 24 hours; it ran from **2026-10-22 14:08:43 to 2026-11-07 18:47:48 UTC (16 days)** because nobody stopped it. That makes it a much stronger result: section 6 uses the 15 full days 2026-10-23 to 2026-11-06.
 - [ ] **Step 8: Probes** (on a throwaway Worker, `uptime-probe`, with its own scratch D1, 2026-10-21; delete both after Phase 0)
   - [x] **SSRF facts:** section 6.
   - [x] **`db.batch()`:** batches of 60 statements succeeded in the burst (40 rollups + 10 monitor updates + 10 events, 19:00-19:02).
@@ -89,15 +89,16 @@ One branch and one PR per step (CLAUDE.md §12). CI must be green before merging
   - [x] **Dead man's switch:** Healthchecks.io Hobbyist: free, 20 checks, signup with an email address and a magic link, no card mentioned on the pricing page (read 2026-10-21; confirm at signup).
   - [x] **CPU profile** (added after P2 failed): section 6.
   - [x] **Fan-out** (added after P2 failed): section 6.
-- [ ] **Step 9: `feat/checker-fanout`** (CLAUDE.md §4: reduce work per tick)
-  - [x] `CheckRunner` (`apps/app/src/checker/runner.ts`), a `WorkerEntrypoint` that runs one group of checks. The tick calls it through `ctx.exports` for each group of 10, one group at a time (the 6-connection limit is shared by the chain). `ctx.exports` needs no flag from compatibility date 2025-11-17.
+- [x] **Step 9: `feat/checker-fanout`, then `fix/tick-cpu`** (CLAUDE.md §4: reduce work per tick)
+  - [x] `CheckRunner` (`apps/app/src/checker/runner.ts`), a `WorkerEntrypoint` that runs one group of checks. The tick calls it through `ctx.exports` for each group (10 at first, 8 since `fix/tick-cpu`), one group at a time (the 6-connection limit is shared by the chain). `ctx.exports` needs no flag from compatibility date 2025-11-17.
   - [x] Tick deadline: a group only starts if it would finish within 50 s of the tick start even if every check timed out; the first group always runs. Claimed monitors that were not checked (deadline or a failed runner) are released (`next_run_at` back to the tick time), so the next tick takes them. This also closes the lease gap for 60 s monitors.
   - [x] `MAX_CHECKS_PER_TICK` default back to 40 (hard cap 200; the deadline is the real limit).
   - [x] Tests: groups of 10 run one at a time; the deadline stops further groups and releases their monitors; a failed runner releases its group without recording failures; `CheckRunner` through `exports` returns plain results; `scheduled()` end to end through `CheckRunner`.
   - [x] Local run (`wrangler dev`, 2026-10-22): 25 monitors on chaos-target `/ping`, 3 groups, 25 checked, 0 runner errors, tick 1.5 s, p95 344 ms.
   - [x] Deployed 2026-10-22 (PR #10). Burst 13:37-14:05 UTC, monitors 1-40 at 40 checks per tick (stopped by hand, in the foreground): 26 of 26 logged ticks checked 40 in 4 groups, 0 released, 0 runner errors, 0 exceptions in 131 invocations. **Runner CPU p50 3 ms, p99 9 ms, max 15. Tick CPU p50 8 ms, p99 16 ms**: the tick itself still went over 10 ms sometimes, although it makes no `fetch()` calls (it still evaluated all 40 checks and built one 50-statement batch). Latency: median of per-tick p50 679 ms, p95 990 ms (P4 still holds). 2.21 rows per check (a FLAPPING window fell inside the burst).
-  - [x] Fix (`fix/tick-cpu`): each `CheckRunner` call now also evaluates its group and writes its own atomic batch (`checker/group.ts`); the tick only claims, dispatches, releases and records usage. Rows written are unchanged (local run: 25 checks, 3 groups, 50 rows); D1 sees one batch per group instead of one per tick. Deploy after the soak, then a short burst re-checks the tick's CPU.
-  - [ ] The 24-hour soak (step 7).
+  - [x] Fix (`fix/tick-cpu`): each `CheckRunner` call now also evaluates its group and writes its own atomic batch (`checker/group.ts`); the tick only claims, dispatches, releases and records usage. Rows written are unchanged (local run: 25 checks, 3 groups, 50 rows); D1 sees one batch per group instead of one per tick.
+  - [x] Deployed from the branch (commit `3aa8c70`, before merging, after running the CI steps locally) on 2026-11-07. Burst 18:50-19:05 UTC, 40 checks per tick in 4 groups of 10: **tick CPU p50 3 ms, max 7 ms** (fixed). Runners p50 4 ms, but 1 of 60 reached 11 ms: they now also evaluate and write, so 10 checks per runner left no headroom. 0 errors, 0 released, 0 exceptions in 75 invocations; latency p50 264 / p95 679 ms; 2.15 rows per check.
+  - [x] Groups of 8 instead of 10 (`CHECKS_PER_GROUP`). Deployed 2026-11-07, burst 19:21-19:31 UTC, 40 checks per tick in 5 groups: **runner CPU p50 3 ms, highest 10 ms (1 of 50), 0 over 10 ms; tick CPU p50 4 ms, max 7 ms**. 0 errors, 0 released, 0 exceptions in 60 invocations; latency p50 135 / p95 668 ms; 2.10 rows per check.
 
 ## 5. If something fails
 
@@ -111,11 +112,11 @@ Write down which criterion failed and what you tried.
 
 | # | Threshold | Measured | Pass? | Notes |
 |---|---|---|---|---|
-| P1 | ≥ 1,426 of 1,440 ticks | soak running | | 186 of 186 ticks in the first 3 hours |
-| P2 | 0 CPU errors; p99 ≤ 7 ms at 40 checks | 0 CPU errors, but **p99 29 ms** (median 18) at 40 checks; 4-7 ms at 1 check; 1-3 ms idle | **Fail** | Every 40-check tick ran 2-3× over the 10 ms limit and Cloudflare stopped none. Its docs only promise tolerance for "infrequent" overruns, so this is not safe to rely on. See "CPU" below. |
+| P1 | ≥ 1,426 of 1,440 ticks | **21,596 of 21,600 (99.98%)** over 15 full days; 1,440 every day except 2026-11-05 (1,436) | Pass | First soak: 1,062 of 1,062. The 4 missing ticks on 2026-11-05 are unexplained (no logs kept that long) |
+| P2 | 0 CPU errors; p99 ≤ 7 ms at 40 checks | One invocation (2026-10-21): p99 **29 ms** at 40 checks. After fan-out and the dispatcher fix, groups of 8 (2026-11-07): **tick max 7 ms, runners p50 3 ms, max 10 ms**, 0 CPU errors | **Fail, then pass after redesign** | The first design ran every 40-check tick 2-3× over the 10 ms limit; Cloudflare stopped none, but its docs only promise tolerance for "infrequent" overruns. The ≤ 7 ms target now holds for the tick; runners stay at or under 10 ms with p50 3 ms. See "CPU" and step 9. |
 | P3 | 0 subrequest / query-limit errors | 0 errors in about 60 ticks of 40 checks, including 60-statement batches | Pass, one part untested | The "+1 Discord call" is not tested: alerting is not built yet |
 | P4 | p95 gap ≤ 200 ms (40 vs 1 check) | 40 per tick: median of per-tick p95 **1,073 ms** (p50 698); 1 per tick: p95 **1,335 ms** (p50 795) | Pass | 40 at once was not slower: the concurrency cap and per-request timer work |
-| P5 | ≤ 2.5 rows written per check | burst 2.009; 40-check runs exactly 2.000; soak 2.22 after 3 h | soak running | Healthy checks cost exactly 2 rows on real D1 |
+| P5 | ≤ 2.5 rows written per check | **2.16** over the soak (932,915 rows ÷ 431,840 checks, 15 full days); about 62,200 rows/day plus 1,440 for the usage counter, 64% of the cap, flat every day | Pass | Healthy checks cost exactly 2 rows on real D1; the extra 0.16 is failure events and state changes from `/scheduled` |
 | P6 | 0 double checks | 0 | Pass | Holds only while a monitor's interval is longer than the tick (see "Lease") |
 | P7 | Cookie round-trips | `received: true`, `HttpOnly; Secure; SameSite=Lax`, `__Host-` prefix | Pass | Browser, deployed HTTPS URL |
 | P8 | ≤ 10,000 requests/day | soak running | | Cron ticks are 1,440/day; fan-out calls are not counted as requests (Cloudflare pricing docs) |
@@ -146,4 +147,6 @@ Write down which criterion failed and what you tried.
 
 **Decision:** ☐ Option B confirmed ☒ Work per tick reduced, re-run ☐ Write model changed, re-run ☐ Fall back to Option A
 
-Work per tick is reduced in two steps (CLAUDE.md §4, step 1). Now: `MAX_CHECKS_PER_TICK` defaults to 10 (the soak already runs at 10, so its results apply). Next (`feat/checker-fanout`): the tick hands groups of about 10 checks to a `CheckRunner` entrypoint, one call at a time, then a short burst re-checks P2 and P4 on the real cron. Record the final decision and the evidence in DECISIONS.md when Phase 0 closes.
+Re-run done (2026-11-07): with fan-out in groups of 8 and the tick only dispatching, P1-P7 pass. P8 waits for the dashboard figure; then tick "Option B confirmed" and record it in DECISIONS.md.
+
+How work per tick was reduced (CLAUDE.md §4, step 1): first a cap of 10 checks per tick (`spike/cpu-budget`), then fan-out to a `CheckRunner` entrypoint (`feat/checker-fanout`), then moving evaluation and writes into the runners and shrinking groups to 8 (`fix/tick-cpu`). `MAX_CHECKS_PER_TICK` is 40 again.

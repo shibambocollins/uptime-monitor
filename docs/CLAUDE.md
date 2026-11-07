@@ -14,7 +14,7 @@ A platform that monitors deployed applications (synthetic / black-box monitoring
 **Differentiator:** a `chaos-target` service that goes down, slows down, and flaps on a schedule. We measure the platform against it: time-to-detect, false-alert rate, missed-incident rate.
 
 ## 2. Current status
-Phase 0 (spike) in progress: scaffold, CI, `chaos-target` and the checker are built; deploy and measurements next. **Phase 0 comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
+Phase 0 (spike) nearly done: built, deployed and measured (burst, a 16-day soak, probes); P1-P7 pass after the fan-out redesign. Left: P8 from the dashboard, then the decision in DECISIONS.md. **Phase 0 comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
 
 ## 3. Decisions made (do not relitigate without a reason; see DECISIONS.md)
 **Chosen: Option B — Cloudflare-native TypeScript** (switched from Option A on 2026-10-19; reasons in DECISIONS.md §10).
@@ -46,8 +46,11 @@ Deploy a skeleton `app` Worker with a cron, D1, and a `chaos-target` on Render. 
 Cron Trigger (every minute)
    → app Worker: scheduled()
       → claim due monitors (one UPDATE moves next_run_at an interval ahead; that is the lease, so overlapping runs skip them)
-      → run checks with fetch() (concurrency ≤ 6, per-check timeout, overall time budget)
-      → one db.batch(): results, monitor state, incidents, alert_events (outbox)
+      → for each group of 8, one at a time, within a 50 s deadline:
+           CheckRunner (WorkerEntrypoint via ctx.exports, its own invocation and CPU budget)
+             → fetch() (concurrency ≤ 6, per-check timeout)
+             → state machine, then one db.batch(): results, monitor state, incidents, alert_events (outbox)
+      → release monitors that weren't checked; usage counter
       → deliver pending alert_events (bounded per run, retries with backoff)
 Browser → app Worker: fetch()
       → /api/v1/*   Hono + Zod, session cookie or API key
@@ -59,12 +62,12 @@ Render free → chaos-target (a fixture we monitor like any external site)
 - D1: **100,000 rows written/day** (`INSERT`, `UPDATE` and `DELETE` all count), 5 million rows read/day, **50 queries per invocation**, 500 MB per database, 5 GB per account. When a daily limit is hit, **all queries fail until 00:00 UTC**.
 
 **Design rules that follow:**
-- **Checks per tick: CPU is the limit, not subrequests** (measured in Phase 0, 2026-10-21). Each `fetch()` costs about 0.25-0.45 ms of CPU and D1 calls almost nothing, so a 40-check cron tick ran at p99 29 ms against the 10 ms limit. One invocation fits about 10 checks; `MAX_CHECKS_PER_TICK` defaults to 10. More capacity comes from fan-out: the tick hands groups of about 10 checks to a `WorkerEntrypoint` through `ctx.exports`, one call at a time. Each call has its own CPU time and subrequest count, but the 6-connection limit is shared by the whole chain, so calls in parallel queue inside the runtime and inflate latency. Cap concurrency at 6 across the tick and start the latency timer when the request actually starts, otherwise queueing causes false SLOW alerts.
+- **Checks per tick: CPU is the limit, not subrequests** (measured in Phase 0, 2026-10-21 to 11-07). Each `fetch()` costs about 0.25-0.45 ms of CPU and D1 calls almost nothing, so a 40-check tick in one invocation ran at p99 29 ms against the 10 ms limit. The fix is fan-out: the tick only claims and dispatches; groups of 8 (`CHECKS_PER_GROUP`) go to a `CheckRunner` `WorkerEntrypoint` through `ctx.exports`, one call at a time, and each runner checks, evaluates and writes its own group. Each call has its own CPU time and subrequest count (measured: tick max 7 ms, runners p50 3 ms, max 10 ms at 40 checks per tick). The 6-connection limit is shared by the whole chain, so groups in parallel would queue inside the runtime and inflate latency. Cap concurrency at 6 and start the latency timer when the request actually starts, otherwise queueing causes false SLOW alerts. A 50 s tick deadline releases groups that might not finish, which keeps ticks shorter than a 60 s interval.
 - **Queries per tick:** use `db.batch()`. A batch of 60 statements ran without hitting the 50-queries limit (Phase 0 burst).
 - **Write budget is the binding limit.** Target ≤ 2 rows written per check in the steady state: the claim `UPDATE` (advances `next_run_at`, which doubles as the lease: there is no separate `lease_until` column, because a claimed monitor is no longer due) and one hourly rollup upsert (count, failures, latency histogram buckets). The monitor row is rewritten again only when state or counters change; raw check rows are stored only for failures and state changes. Deletes cost writes too, so retention removes rollups and raw failure rows, never per-check rows.
 - **Indexes cost writes.** D1 adds at least one row written whenever a write touches an indexed column (fact, D1 pricing docs). So:
   - **No index on `next_run_at`.** The claim changes it on every check; an index would make it 3+ rows per check. The claim scans the `monitors` table instead, which costs reads: 100 monitors × 1,440 ticks = 144,000 rows read/day (3% of the 5M cap). Revisit at about 1,000 monitors (about 29%).
-  - **`check_rollups_hourly` has `PRIMARY KEY (monitor_id, hour)` and is `WITHOUT ROWID`**, so the key is the table and there is no separate index to write (inference from SQLite). Local D1 reports 1 row written for the upsert, both for a new hour and an existing one, and remote D1 accepts `WITHOUT ROWID` (both 2026-10-21). Rows written per check on remote D1 is measured in the soak (P5).
+  - **`check_rollups_hourly` has `PRIMARY KEY (monitor_id, hour)` and is `WITHOUT ROWID`**, so the key is the table and there is no separate index to write (inference from SQLite). Local D1 reports 1 row written for the upsert, both for a new hour and an existing one, and remote D1 accepts `WITHOUT ROWID` (both 2026-10-21). On remote D1 a healthy check costs exactly 2 rows; the 16-day soak averaged 2.16 including failure events and state changes (P5).
   - **Counters must not change in a steady state.** Every counter counts only towards a pending transition and resets when it happens or when the streak breaks (`applyCheck` in `packages/core`). A monitor that stays UP and fast, DEGRADED and slow, or DOWN and failing keeps all three at 0. Otherwise the monitor row is rewritten on every check.
 - **Estimate:** at 2 rows/check, 100 monitors at 5-minute intervals write 100 × 288 × 2 = 57,600 rows/day, plus 1,440 for the per-tick `usage_daily` counter: about 59% of the cap. If one extra index row slips in (3 rows/check) it is about 88%, past the 80% guard below, so P5 in the spike is what proves the model. The old estimate (4 rows/check, "about 100 monitors") was wrong: 4 rows/check caps out at about 85 monitors.
 - **Daily-cap safety:** track rows written per day in a counter; above 80% of the cap, stretch intervals and alert the owner once, so the dashboard never hard-stops.
