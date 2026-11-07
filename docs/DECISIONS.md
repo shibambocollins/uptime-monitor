@@ -69,13 +69,13 @@ College applications platform (the idea that preceded this one): the premise was
 
 ## 9. Open items to verify (do not assume)
 **Option B (current).** The Phase 0 spike settles most of these; see `docs/phase-0-checklist.md` §1 and §4 step 8.
-- Whether a `db.batch()` counts as one query or many toward the 50 per invocation.
-- Whether D1 calls count toward the 50 subrequests per invocation (if so, "about 40 checks per tick" shrinks).
-- Whether D1 supports `WITHOUT ROWID` tables (the rollup table relies on it to avoid an extra index row; CLAUDE.md §5).
-- Current free-tier limits for the email provider, Workers, D1 and Render.
+- Current free-tier limits for the email provider (Resend: card at signup? sending without a domain?), and re-checking Workers, D1 and Render limits at build time.
+- Whether Cloudflare enforces the 10 ms CPU limit per invocation or per service-binding chain (CPU is reported per invocation; the docs only say billing is combined).
 - Whether Google/Microsoft sign-in is wanted later.
 
-**Answered:** D1 deletes count as rows written, and writing a column that is part of an index adds at least one more row written ([D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), checked 2026-10-19).
+**Answered:** D1 deletes count as rows written, and writing a column that is part of an index adds at least one more row written ([D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/), checked 2026-10-19; measured in Phase 0: insert into an indexed table 2 rows, update of an indexed column 2 rows).
+
+**Answered in Phase 0** (details in `docs/phase-0-checklist.md` §6): a `db.batch()` of 60 statements does not hit the 50-queries limit; D1 calls count as subrequests (Workers limits page), which no longer matters because each `CheckRunner` has its own 50; remote D1 accepts `WITHOUT ROWID`; GitHub supports PKCE (S256) for OAuth Apps; Workers' `fetch()` to private and loopback addresses gets a Cloudflare 403 (error 1003) or 530 (error 1016) instead of reaching them.
 
 **Option A only (relevant only on fallback):** Java and Spring Boot versions; Render prebuilt-image support on free; JVM memory fit; Aiven connection limits; whether `SKIP LOCKED` behaves as expected on the chosen MySQL version; whether Cron Trigger calls to Render survive cold starts.
 
@@ -103,3 +103,18 @@ College applications platform (the idea that preceded this one): the premise was
 **Second correction (same day):** D1 counts an extra row written whenever a write touches an indexed column. The first draft indexed `monitors(next_run_at)`, which the claim `UPDATE` changes on every check, so the real cost was at least 3 rows per check (about 86% of the cap for 100 monitors) and P5 would have failed by design. Fix: no index on `next_run_at` (a full scan of a few hundred monitor rows per tick costs reads, which are plentiful, instead of writes, which are scarce), and the rollup table keyed by a `WITHOUT ROWID` primary key. Details in CLAUDE.md §5.
 
 **Revisit if:** the Phase 0 spike fails its criteria after reducing work per tick, or a domain becomes available and email matters more.
+
+## 11. 2026-11-07: Phase 0 passed, Option B confirmed
+**Decision:** keep Option B. All eight Phase 0 criteria pass (`docs/phase-0-checklist.md` §6). Option A stays documented as the fallback but is no longer expected.
+
+**What the spike changed in the design:**
+- **CPU, not subrequests, limits checks per invocation.** Each `fetch()` costs about 0.25-0.45 ms of CPU, so 40 checks in one cron invocation measured p99 29 ms against the 10 ms limit (P2 failed). Cloudflare stopped none of those ticks, but its docs only promise tolerance for infrequent overruns, so relying on that was rejected.
+- **Fan-out fixes it.** The tick claims monitors and hands groups of 8 to a `CheckRunner` `WorkerEntrypoint` through `ctx.exports`; each call is its own invocation with its own CPU time and subrequest count, and it checks, evaluates and writes its own group. Measured at 40 checks per tick: tick max 7 ms, runners p50 3 ms, max 10 ms. Calls through service bindings are not billed as requests (P8: about 1,450 requests/day).
+- **Groups run one at a time.** The 6-connection limit is shared by the whole chain; groups in parallel queued inside the runtime and inflated latency from about 690 to about 2,050 ms.
+- **A 50 s tick deadline** releases groups that might not finish, so a tick stays shorter than a 60 s interval and the `next_run_at` lease holds.
+
+**Evidence that the write model holds:** a 16-day soak (planned for 24 hours; it was left running) at 20 checks per tick: 21,596 of 21,600 ticks (99.98%), 2.16 rows written per check, about 64% of the daily write cap, flat every day.
+
+**Accepted costs:** throughput per tick is bounded by the shared 6 connections and the 50 s deadline (about 400 checks per tick at 0.7 s each), well above what the write budget allows (about 48,000 checks/day at 2 rows each, roughly 165 monitors at 5-minute intervals). The checker depends on `ctx.exports`, a Cloudflare-specific feature. Whether the CPU limit is enforced per invocation or per chain is undocumented (§9).
+
+**Revisit if:** Cloudflare changes how CPU is counted for service-binding calls, runner CPU p99 creeps towards 10 ms as the checker grows (shrink `CHECKS_PER_GROUP`), or the write cap becomes the limit (rollups per 6 hours, fewer raw events).

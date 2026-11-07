@@ -119,7 +119,7 @@ Write down which criterion failed and what you tried.
 | P5 | ≤ 2.5 rows written per check | **2.16** over the soak (932,915 rows ÷ 431,840 checks, 15 full days); about 62,200 rows/day plus 1,440 for the usage counter, 64% of the cap, flat every day | Pass | Healthy checks cost exactly 2 rows on real D1; the extra 0.16 is failure events and state changes from `/scheduled` |
 | P6 | 0 double checks | 0 | Pass | Holds only while a monitor's interval is longer than the tick (see "Lease") |
 | P7 | Cookie round-trips | `received: true`, `HttpOnly; Secure; SameSite=Lax`, `__Host-` prefix | Pass | Browser, deployed HTTPS URL |
-| P8 | ≤ 10,000 requests/day | soak running | | Cron ticks are 1,440/day; fan-out calls are not counted as requests (Cloudflare pricing docs) |
+| P8 | ≤ 10,000 requests/day | **about 1,450 requests/day** (Workers dashboard, read 2026-11-07) | Pass | 1,440 are cron ticks; the rest are our own checks of the page and API. Fan-out calls to `CheckRunner` are not counted as requests (Cloudflare pricing docs), which the dashboard figure confirms: 5 runner calls per tick would otherwise add 7,200/day |
 
 **Other measurements (facts, 2026-10-21):**
 - **Time to detect:** chaos-target went DOWN at 19:00:00; the `/scheduled` monitors reached DOWN at 19:02:46 (60 s interval, 3 failures needed).
@@ -145,8 +145,17 @@ Write down which criterion failed and what you tried.
 - GitHub PKCE for OAuth Apps: supported, S256 only.
 - Dead man's switch service: Healthchecks.io Hobbyist (free, 20 checks).
 
-**Decision:** ☐ Option B confirmed ☒ Work per tick reduced, re-run ☐ Write model changed, re-run ☐ Fall back to Option A
+**Decision (2026-11-07):** ☒ Option B confirmed ☒ Work per tick reduced, re-run ☐ Write model changed, re-run ☐ Fall back to Option A
 
-Re-run done (2026-11-07): with fan-out in groups of 8 and the tick only dispatching, P1-P7 pass. P8 waits for the dashboard figure; then tick "Option B confirmed" and record it in DECISIONS.md.
+All eight criteria pass after the re-run. P2 failed with the first design and passes with fan-out in groups of 8 and a tick that only dispatches. P3 passes except the "+1 Discord call", which is tested when alerting is built. Recorded in DECISIONS.md §11.
 
 How work per tick was reduced (CLAUDE.md §4, step 1): first a cap of 10 checks per tick (`spike/cpu-budget`), then fan-out to a `CheckRunner` entrypoint (`feat/checker-fanout`), then moving evaluation and writes into the runners and shrinking groups to 8 (`fix/tick-cpu`). `MAX_CHECKS_PER_TICK` is 40 again.
+
+## 7. After Phase 0: remove the spike-only pieces
+
+One small branch (for example `chore/phase-0-cleanup`), before feature work:
+- [ ] `SPIKE_SLOW_TICK_MS` (`wrangler.jsonc` var, `slowTickMs` and `sleep` in `checker/tick.ts`, `index.ts` and tests).
+- [ ] The cookie spike: `apps/app/src/spike/`, its route in `index.ts`, `test/spike-cookie.spec.ts`, and `web/src/CookieSpike.tsx` (replace with a placeholder page until the real UI).
+- [ ] `apps/app/scripts/phase0-seed.sql` and `phase0-soak.sql`, and the 60 seeded monitors in the remote D1 (`DELETE FROM monitors WHERE id BETWEEN 1 AND 40 OR id BETWEEN 101 AND 120`; their rollups and events go with them via `ON DELETE CASCADE`).
+- [ ] The throwaway `uptime-probe` Worker and its `uptime-probe` D1 database (Cloudflare account, not the repo).
+- [ ] Keep `chaos-target` on Render: it is the product's differentiator, not a spike piece.

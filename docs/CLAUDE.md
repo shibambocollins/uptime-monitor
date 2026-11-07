@@ -14,11 +14,11 @@ A platform that monitors deployed applications (synthetic / black-box monitoring
 **Differentiator:** a `chaos-target` service that goes down, slows down, and flaps on a schedule. We measure the platform against it: time-to-detect, false-alert rate, missed-incident rate.
 
 ## 2. Current status
-Phase 0 (spike) nearly done: built, deployed and measured (burst, a 16-day soak, probes); P1-P7 pass after the fan-out redesign. Left: P8 from the dashboard, then the decision in DECISIONS.md. **Phase 0 comes before any feature work.** See section 4 and the working checklist in `docs/phase-0-checklist.md`.
+Phase 0 (spike) **passed on 2026-11-07**: all eight criteria pass after the fan-out redesign, and Option B is confirmed (DECISIONS.md §11). Results: `docs/phase-0-checklist.md` §6. Next: feature work (monitor API, auth, alerts), after removing the spike-only pieces (`docs/phase-0-checklist.md` §7).
 
 ## 3. Decisions made (do not relitigate without a reason; see DECISIONS.md)
 **Chosen: Option B — Cloudflare-native TypeScript** (switched from Option A on 2026-10-19; reasons in DECISIONS.md §10).
-**Fallback: Option A — Spring Boot on Render + Aiven MySQL**, only if the Phase 0 spike shows B cannot work.
+**Fallback: Option A — Spring Boot on Render + Aiven MySQL.** Phase 0 confirmed B (DECISIONS.md §11), so A is kept only as documentation.
 
 | Area | Decision |
 |---|---|
