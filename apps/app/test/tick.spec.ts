@@ -52,11 +52,9 @@ function deps(fetch: FetchFn, overrides: Partial<TickDeps> = {}) {
     // in-process, with the fake fetch.
     runGroup: (group) => checkGroup(group, { db: env.DB, fetch, now: () => tickDeps.now() }),
     now: () => T0,
-    sleep: async () => {},
     log: (entry) => logs.push(entry),
     tickId: 'test-tick',
     maxChecks: 40,
-    slowTickMs: 0,
     ...overrides,
   };
   return { deps: tickDeps, logs };
@@ -220,10 +218,12 @@ describe('runTick', () => {
   it('lets an overlapping tick run without re-checking claimed monitors', async () => {
     await addMonitor({ interval_seconds: 300 });
     let overlapping: Awaited<ReturnType<typeof runTick>> | undefined;
+    const inner = deps(respond(200)).deps;
+    // The next cron tick fires while this tick's first group is still running.
     const slow = deps(respond(200), {
-      slowTickMs: 70_000,
-      sleep: async () => {
+      runGroup: async (group) => {
         overlapping = await runTick(T0 + MINUTE, deps(respond(200)).deps);
+        return inner.runGroup(group);
       },
     });
 

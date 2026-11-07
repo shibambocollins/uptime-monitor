@@ -36,13 +36,10 @@
     "crons": ["* * * * *"],
   },
   "vars": {
-    // Upper bound on checks claimed per tick. They run in groups of 10, each group in its
-    // own invocation, because one invocation fits about 10 fetch() calls inside the 10 ms
-    // CPU limit (Phase 0, docs/phase-0-checklist.md section 6). The tick deadline
-    // (checker/tick.ts) releases any group that wouldn't finish in time.
+    // Upper bound on checks claimed per tick. They run in groups of 8 (CHECKS_PER_GROUP),
+    // each group in its own invocation, because one invocation fits only a handful of
+    // fetch() calls inside the 10 ms CPU limit (Phase 0, docs/phase-0-checklist.md §6).
+    // The tick deadline (checker/tick.ts) releases any group that wouldn't finish in time.
     "MAX_CHECKS_PER_TICK": "40",
-    // SPIKE (Phase 0 P6 only, remove after): wait this long between running the checks and
-    // writing results, so a tick can be made to outlast the next cron firing.
-    "SPIKE_SLOW_TICK_MS": "0",
   },
 }
