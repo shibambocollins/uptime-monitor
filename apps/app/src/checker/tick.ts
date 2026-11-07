@@ -9,8 +9,12 @@ import { MAX_CONCURRENT_CHECKS } from './run-checks';
  */
 export const HARD_MAX_CHECKS_PER_TICK = 200;
 
-/** Checks per CheckRunner call: one invocation fits about 10 inside the 10 ms CPU limit. */
-export const CHECKS_PER_GROUP = 10;
+/**
+ * Checks per CheckRunner call. Each check costs a runner about 0.3-0.5 ms of CPU (fetch(),
+ * evaluation, its share of the batch). With 10 per group, runners measured p50 4 ms but up
+ * to 11 ms (Phase 0, 2026-11-07); 8 leaves headroom under the 10 ms limit.
+ */
+export const CHECKS_PER_GROUP = 8;
 
 /**
  * A group only starts if it would finish, even if every check in it timed out, within this

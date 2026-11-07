@@ -270,16 +270,16 @@ describe('runTick fan-out', () => {
     return { runGroup, calls, maxInFlight: () => maxInFlight };
   }
 
-  it('checks in groups of 10, one group at a time', async () => {
+  it('checks in groups of 8, one group at a time', async () => {
     for (let i = 0; i < 25; i++) await addMonitor();
     const runner = recordingRunner();
 
     const stats = await runTick(T0, deps(respond(200), { runGroup: runner.runGroup }).deps);
 
-    expect(runner.calls.map((ids) => ids.length)).toEqual([10, 10, 5]);
+    expect(runner.calls.map((ids) => ids.length)).toEqual([8, 8, 8, 1]);
     // Groups share the 6-connection limit, so running them in parallel would inflate latency.
     expect(runner.maxInFlight()).toBe(1);
-    expect(stats).toMatchObject({ claimed: 25, checked: 25, released: 0, groups: 3 });
+    expect(stats).toMatchObject({ claimed: 25, checked: 25, released: 0, groups: 4 });
   });
 
   it('stops starting groups that might not finish before the deadline, and releases them', async () => {
@@ -295,8 +295,8 @@ describe('runTick fan-out', () => {
       deps(respond(200), { runGroup: runner.runGroup, now: () => clock, deadlineMs: 20_500 }).deps,
     );
 
-    expect(stats).toMatchObject({ claimed: 25, checked: 10, released: 15, groups: 1 });
-    expect(stats.rowsWritten.release).toBe(15);
+    expect(stats).toMatchObject({ claimed: 25, checked: 8, released: 17, groups: 1 });
+    expect(stats.rowsWritten.release).toBe(17);
     const rows = await all<{ id: number; next_run_at: number }>(
       'SELECT id, next_run_at FROM monitors ORDER BY id',
     );
@@ -317,7 +317,7 @@ describe('runTick fan-out', () => {
 
     const stats = await runTick(T0, d);
 
-    expect(stats).toMatchObject({ checked: 10, released: 5, runnerErrors: 1, failures: 0 });
+    expect(stats).toMatchObject({ checked: 8, released: 7, runnerErrors: 1, failures: 0 });
     expect(await all('SELECT COUNT(*) AS n FROM check_events')).toEqual([{ n: 0 }]);
     expect(logs).toContainEqual(
       expect.objectContaining({ event: 'runner_failed', error: 'Error: runner crashed' }),
