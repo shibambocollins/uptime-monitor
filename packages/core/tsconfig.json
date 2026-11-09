@@ -1,4 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Only for the WHATWG URL global (url-validation.ts), which Workers has too. TypeScript
+    // 6 no longer loads @types packages unless they are listed here.
+    "types": ["node"]
+  },
   "include": ["src/**/*.ts"]
 }

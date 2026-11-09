@@ -1,0 +1,364 @@
+{
+  "description": "SSRF checks for monitor URLs (CLAUDE.md §8, rules 1-2). Any implementation (packages/core/src/url-validation.ts, or a future port) must return exactly `result` for each `input`. `addresses` covers the address check used on DNS answers (rule 3): `category` null means public.",
+  "urls": [
+    {
+      "name": "accepts a plain https URL and adds the root path",
+      "input": "https://example.com",
+      "result": { "ok": true, "href": "https://example.com/" }
+    },
+    {
+      "name": "normalises scheme, host case and default port, and drops the fragment",
+      "input": "HTTP://Example.COM:80/path?q=1#frag",
+      "result": { "ok": true, "href": "http://example.com/path?q=1" }
+    },
+    {
+      "name": "ignores surrounding spaces",
+      "input": "  https://example.com  ",
+      "result": { "ok": true, "href": "https://example.com/" }
+    },
+    {
+      "name": "accepts a fully qualified name with a trailing dot",
+      "input": "https://example.com.",
+      "result": { "ok": true, "href": "https://example.com./" }
+    },
+    {
+      "name": "accepts a public IPv4 literal and a non-default port",
+      "input": "https://8.8.8.8:8443/x",
+      "result": { "ok": true, "href": "https://8.8.8.8:8443/x" }
+    },
+    {
+      "name": "accepts a public IPv6 literal",
+      "input": "https://[2606:4700:4700::1111]/",
+      "result": { "ok": true, "href": "https://[2606:4700:4700::1111]/" }
+    },
+    {
+      "name": "accepts an IPv4-mapped IPv6 literal of a public address",
+      "input": "https://[::ffff:8.8.8.8]/",
+      "result": { "ok": true, "href": "https://[::ffff:808:808]/" }
+    },
+    {
+      "name": "accepts the address just below 172.16.0.0/12",
+      "input": "http://172.15.255.255",
+      "result": { "ok": true, "href": "http://172.15.255.255/" }
+    },
+    {
+      "name": "accepts the address just above 172.16.0.0/12",
+      "input": "http://172.32.0.0",
+      "result": { "ok": true, "href": "http://172.32.0.0/" }
+    },
+    {
+      "name": "accepts the address just above 100.64.0.0/10",
+      "input": "http://100.128.0.0",
+      "result": { "ok": true, "href": "http://100.128.0.0/" }
+    },
+
+    {
+      "name": "rejects text that is not a URL",
+      "input": "not a url",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+    {
+      "name": "rejects an empty string",
+      "input": "",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+    {
+      "name": "rejects a relative URL",
+      "input": "/relative",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+    {
+      "name": "rejects a URL without a host",
+      "input": "https://",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+    {
+      "name": "rejects an IPv4 literal with an octet above 255",
+      "input": "http://999.1.1.1",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+    {
+      "name": "rejects an IPv6 zone ID",
+      "input": "http://[fe80::1%25eth0]",
+      "result": { "ok": false, "reason": "INVALID_URL" }
+    },
+
+    {
+      "name": "scheme: rejects ftp",
+      "input": "ftp://example.com",
+      "result": { "ok": false, "reason": "UNSUPPORTED_SCHEME" }
+    },
+    {
+      "name": "scheme: rejects file",
+      "input": "file:///etc/passwd",
+      "result": { "ok": false, "reason": "UNSUPPORTED_SCHEME" }
+    },
+    {
+      "name": "scheme: rejects javascript",
+      "input": "javascript:alert(1)",
+      "result": { "ok": false, "reason": "UNSUPPORTED_SCHEME" }
+    },
+    {
+      "name": "scheme: rejects data",
+      "input": "data:text/plain,hi",
+      "result": { "ok": false, "reason": "UNSUPPORTED_SCHEME" }
+    },
+    {
+      "name": "scheme: rejects ws",
+      "input": "ws://example.com",
+      "result": { "ok": false, "reason": "UNSUPPORTED_SCHEME" }
+    },
+
+    {
+      "name": "credentials: rejects user and password",
+      "input": "https://user:pass@example.com",
+      "result": { "ok": false, "reason": "CREDENTIALS" }
+    },
+    {
+      "name": "credentials: rejects a user name alone",
+      "input": "https://user@example.com",
+      "result": { "ok": false, "reason": "CREDENTIALS" }
+    },
+
+    {
+      "name": "internal name: localhost",
+      "input": "http://localhost:8080",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: localhost in capitals with a trailing dot",
+      "input": "http://LOCALHOST.",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: a subdomain of localhost",
+      "input": "http://api.localhost",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: mDNS .local",
+      "input": "http://printer.local",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: .internal (cloud metadata name)",
+      "input": "http://metadata.google.internal",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: home.arpa",
+      "input": "http://router.home.arpa",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+    {
+      "name": "internal name: a single label",
+      "input": "http://intranet",
+      "result": { "ok": false, "reason": "INTERNAL_HOSTNAME" }
+    },
+
+    {
+      "name": "loopback: 127.0.0.1",
+      "input": "http://127.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: short form 127.1",
+      "input": "http://127.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: decimal integer form",
+      "input": "http://2130706433",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: hexadecimal octet",
+      "input": "http://0x7f.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: octal octet",
+      "input": "http://0177.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: IPv6 ::1",
+      "input": "http://[::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: IPv4-mapped IPv6",
+      "input": "http://[::ffff:127.0.0.1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: through NAT64",
+      "input": "http://[64:ff9b::127.0.0.1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+    {
+      "name": "loopback: through 6to4",
+      "input": "http://[2002:7f00:1::]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "loopback" }
+    },
+
+    {
+      "name": "unspecified: 0.0.0.0",
+      "input": "http://0.0.0.0",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "unspecified" }
+    },
+    {
+      "name": "unspecified: the integer 0",
+      "input": "http://0",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "unspecified" }
+    },
+    {
+      "name": "unspecified: IPv6 ::",
+      "input": "http://[::]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "unspecified" }
+    },
+
+    {
+      "name": "private: 10.0.0.0/8",
+      "input": "http://10.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "private" }
+    },
+    {
+      "name": "private: start of 172.16.0.0/12",
+      "input": "http://172.16.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "private" }
+    },
+    {
+      "name": "private: end of 172.16.0.0/12",
+      "input": "http://172.31.255.255",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "private" }
+    },
+    {
+      "name": "private: 192.168.0.0/16",
+      "input": "http://192.168.1.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "private" }
+    },
+    {
+      "name": "private: IPv4-mapped IPv6",
+      "input": "http://[::ffff:192.168.1.1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "private" }
+    },
+
+    {
+      "name": "link-local: 169.254.0.0/16",
+      "input": "http://169.254.1.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "link-local" }
+    },
+    {
+      "name": "link-local: IPv6 fe80::/10",
+      "input": "http://[fe80::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "link-local" }
+    },
+
+    {
+      "name": "metadata: AWS, GCP and Azure",
+      "input": "http://169.254.169.254/latest/meta-data/",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "metadata" }
+    },
+    {
+      "name": "metadata: Alibaba Cloud",
+      "input": "http://100.100.100.200",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "metadata" }
+    },
+    {
+      "name": "metadata: AWS IPv6",
+      "input": "http://[fd00:ec2::254]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "metadata" }
+    },
+    {
+      "name": "metadata: IPv4-mapped IPv6",
+      "input": "http://[::ffff:169.254.169.254]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "metadata" }
+    },
+
+    {
+      "name": "cgnat: 100.64.0.0/10",
+      "input": "http://100.64.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "cgnat" }
+    },
+
+    {
+      "name": "documentation: 192.0.2.0/24",
+      "input": "http://192.0.2.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "documentation" }
+    },
+    {
+      "name": "documentation: IPv6 2001:db8::/32",
+      "input": "http://[2001:db8::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "documentation" }
+    },
+    {
+      "name": "documentation: IPv6 3fff::/20",
+      "input": "http://[3fff::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "documentation" }
+    },
+
+    {
+      "name": "multicast: 224.0.0.0/4",
+      "input": "http://224.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "multicast" }
+    },
+    {
+      "name": "multicast: IPv6 ff00::/8",
+      "input": "http://[ff02::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "multicast" }
+    },
+
+    {
+      "name": "reserved: 240.0.0.0/4",
+      "input": "http://240.0.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "reserved" }
+    },
+    {
+      "name": "reserved: broadcast",
+      "input": "http://255.255.255.255",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "reserved" }
+    },
+    {
+      "name": "reserved: benchmarking 198.18.0.0/15",
+      "input": "http://198.18.0.1",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "reserved" }
+    },
+    {
+      "name": "reserved: deprecated IPv4-compatible IPv6",
+      "input": "http://[::127.0.0.1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "reserved" }
+    },
+    {
+      "name": "reserved: deprecated IPv6 site-local",
+      "input": "http://[fec0::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "reserved" }
+    },
+
+    {
+      "name": "unique-local: IPv6 fc00::/7",
+      "input": "http://[fd12:3456::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "unique-local" }
+    },
+
+    {
+      "name": "transition: Teredo 2001::/32",
+      "input": "http://[2001::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "transition" }
+    },
+    {
+      "name": "transition: local-use NAT64",
+      "input": "http://[64:ff9b:1::1]",
+      "result": { "ok": false, "reason": "BLOCKED_ADDRESS", "category": "transition" }
+    }
+  ],
+  "addresses": [
+    { "ip": "8.8.8.8", "category": null },
+    { "ip": "10.1.2.3", "category": "private" },
+    { "ip": "0:0:0:0:0:0:0:1", "category": "loopback" },
+    { "ip": "::ffff:10.0.0.1", "category": "private" },
+    { "ip": "2606:4700:4700:0:0:0:0:1111", "category": null },
+    { "ip": "FE80::ABCD", "category": "link-local" },
+    { "ip": "fd00:ec2:0:0:0:0:0:254", "category": "metadata" }
+  ]
+}
