@@ -7,17 +7,17 @@ import { checkGroup, type GroupResult } from '../src/checker/group';
 import type { FetchFn } from '../src/checker/run-checks';
 import { runTick, type TickDeps } from '../src/checker/tick';
 import worker from '../src/index';
+import { addProject, resetDb } from './fixtures';
 
 // A cron minute at the start of an hour, so a few ticks share one rollup row.
 const T0 = Date.UTC(2026, 9, 21, 15, 0, 0);
 const MINUTE = 60_000;
 
+let projectId: number;
+
 beforeEach(async () => {
-  await env.DB.batch(
-    ['check_events', 'check_rollups_hourly', 'usage_daily', 'monitors'].map((table) =>
-      env.DB.prepare(`DELETE FROM ${table}`),
-    ),
-  );
+  await resetDb();
+  projectId = await addProject(T0);
 });
 
 interface MonitorSeed {
@@ -30,15 +30,18 @@ interface MonitorSeed {
 
 async function addMonitor(seed: MonitorSeed = {}): Promise<number> {
   const row = await env.DB.prepare(
-    `INSERT INTO monitors (url, interval_seconds, next_run_at, enabled, latency_threshold_ms)
-     VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id`,
+    `INSERT INTO monitors (project_id, name, url, interval_seconds, next_run_at, enabled,
+       latency_threshold_ms, created_at, updated_at)
+     VALUES (?1, 'Test monitor', ?2, ?3, ?4, ?5, ?6, ?7, ?7) RETURNING id`,
   )
     .bind(
+      projectId,
       seed.url ?? 'https://target.example/',
       seed.interval_seconds ?? 60,
       seed.next_run_at ?? T0,
       seed.enabled ?? 1,
       seed.latency_threshold_ms ?? 2000,
+      T0,
     )
     .first<{ id: number }>();
   return row!.id;
@@ -341,8 +344,9 @@ describe('CheckRunner', () => {
     const result = await exports.CheckRunner.checkGroup([monitor]);
 
     expect(result).toMatchObject({ checkedIds: [id], failures: 1, latenciesMs: [] });
-    // The runner wrote the group itself: rollup + failure event (+ monitor row: counter 0 -> 1).
-    expect(result.rowsWritten).toEqual({ rollup: 1, monitor: 1, event: 1 });
+    // The runner wrote the group itself: rollup + failure event (2 rows: the row and its
+    // check_events_monitor_id entry) + monitor row (counter 0 -> 1).
+    expect(result.rowsWritten).toEqual({ rollup: 1, monitor: 1, event: 2 });
     expect(await all('SELECT monitor_id, error FROM check_events')).toEqual([
       { monitor_id: id, error: expect.stringMatching(/^TypeError/) },
     ]);
