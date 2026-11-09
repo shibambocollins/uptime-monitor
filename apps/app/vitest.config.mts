@@ -12,7 +12,14 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            // Fake credentials: GitHub itself is faked in test/auth.spec.ts.
+            GITHUB_CLIENT_ID: 'test-client-id',
+            GITHUB_CLIENT_SECRET: 'test-client-secret',
+          },
+        },
       }),
     ],
     test: {

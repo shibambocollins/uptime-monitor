@@ -1,12 +1,10 @@
-import { Hono } from 'hono';
+import { createApp } from './app';
 import { runTick } from './checker/tick';
 
 // A top-level export, so the tick can reach it through ctx.exports.
 export { CheckRunner } from './checker/runner';
 
-const app = new Hono<{ Bindings: Env }>();
-
-app.get('/api/v1/health', (c) => c.json({ status: 'ok' }));
+const app = createApp({ fetch: (url, init) => fetch(url, init), now: () => Date.now() });
 
 export default {
   fetch: app.fetch,
