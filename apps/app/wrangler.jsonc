@@ -41,5 +41,10 @@
     // fetch() calls inside the 10 ms CPU limit (Phase 0, docs/phase-0-checklist.md §6).
     // The tick deadline (checker/tick.ts) releases any group that wouldn't finish in time.
     "MAX_CHECKS_PER_TICK": "40",
+    // The origin browsers use. OAuth's redirect_uri is built from it, so it must match the
+    // OAuth App's callback URL exactly. .dev.vars overrides it locally (.dev.vars.example).
+    "APP_ORIGIN": "https://uptime-app.uptime-app.workers.dev",
   },
+  // Secrets (not here, never in the repo): GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, set
+  // with `npx wrangler secret put` (src/env.d.ts).
 }
