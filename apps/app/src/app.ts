@@ -3,6 +3,8 @@ import type { AppDeps, AppEnv } from './app-env';
 import { requireSession } from './auth/middleware';
 import { authRoutes } from './auth/routes';
 import { apiError } from './http/errors';
+import { monitorRoutes } from './monitors/routes';
+import { projectRoutes } from './projects/routes';
 
 /** The /api/v1 app. Everything else is static assets (wrangler.jsonc "assets"). */
 export function createApp(deps: AppDeps) {
@@ -11,6 +13,16 @@ export function createApp(deps: AppDeps) {
   app.get('/api/v1/health', (c) => c.json({ status: 'ok' }));
 
   app.route('/api/v1/auth', authRoutes(deps));
+
+  // Everything under these prefixes needs a session. Registered here, once, rather than
+  // inside the routers: a router's own middleware would also run for /api/v1/health and
+  // /api/v1/auth once mounted at /api/v1, and two routers would look the session up twice.
+  const session = requireSession(deps);
+  for (const prefix of ['/api/v1/teams/*', '/api/v1/projects/*', '/api/v1/monitors/*']) {
+    app.use(prefix, session);
+  }
+  app.route('/api/v1', projectRoutes(deps));
+  app.route('/api/v1', monitorRoutes(deps));
 
   /** The signed-in user and their teams. A DTO, not database rows (CLAUDE.md §12). */
   app.get('/api/v1/me', requireSession(deps), async (c) => {

@@ -71,7 +71,7 @@ Render free → chaos-target (a fixture we monitor like any external site)
   - **Counters must not change in a steady state.** Every counter counts only towards a pending transition and resets when it happens or when the streak breaks (`applyCheck` in `packages/core`). A monitor that stays UP and fast, DEGRADED and slow, or DOWN and failing keeps all three at 0. Otherwise the monitor row is rewritten on every check.
 - **Estimate:** at 2 rows/check, 100 monitors at 5-minute intervals write 100 × 288 × 2 = 57,600 rows/day, plus 1,440 for the per-tick `usage_daily` counter: about 59% of the cap. If one extra index row slips in (3 rows/check) it is about 88%, past the 80% guard below, so P5 in the spike is what proves the model. The old estimate (4 rows/check, "about 100 monitors") was wrong: 4 rows/check caps out at about 85 monitors.
 - **Daily-cap safety:** track rows written per day in a counter; above 80% of the cap, stretch intervals and alert the owner once, so the dashboard never hard-stops.
-- **Min monitor interval:** default 5 minutes; per-team monitor cap.
+- **Min monitor interval:** default 5 minutes; per-team caps of 20 monitors and 20 live projects (`MAX_MONITORS_PER_TEAM`, `MAX_PROJECTS_PER_TEAM`, enforced inside the `INSERT` so concurrent requests cannot pass them). 20 monitors at 5 minutes write about 12% of the daily cap.
 - **Alerts use an outbox table.** A Discord or email failure must never lose or block an alert or a check.
 - **Timestamps:** UTC everywhere, stored as INTEGER epoch milliseconds.
 - **Uptime %:** successful checks / total checks in the window, computed from rollups. Document it in the README.

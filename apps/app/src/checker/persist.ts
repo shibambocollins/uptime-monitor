@@ -17,11 +17,17 @@ export interface EvaluatedCheck {
 
 export type StatementKind = 'rollup' | 'monitor' | 'event' | 'release';
 
+// The rollup and event inserts write nothing if the monitor was deleted while its check
+// was in flight (the API deletes monitors). A plain INSERT would hit the foreign key and
+// fail the whole batch, losing the other monitors' results in the group. The EXISTS is a
+// primary-key lookup: one row read, no rows written. (SQLite needs a WHERE on an
+// INSERT ... SELECT with an upsert clause anyway, to parse ON CONFLICT unambiguously.)
 const ROLLUP_SQL = `
 INSERT INTO check_rollups_hourly
   (monitor_id, hour, total, failures, latency_sum_ms,
    lt_250, lt_500, lt_1000, lt_2500, lt_5000, ge_5000)
-VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+SELECT ?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+WHERE EXISTS (SELECT 1 FROM monitors WHERE id = ?1)
 ON CONFLICT (monitor_id, hour) DO UPDATE SET
   total = total + 1,
   failures = failures + excluded.failures,
@@ -41,7 +47,8 @@ WHERE id = ?1`;
 const EVENT_SQL = `
 INSERT INTO check_events
   (monitor_id, checked_at, success, status_code, response_ms, error, state)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`;
+SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+WHERE EXISTS (SELECT 1 FROM monitors WHERE id = ?1)`;
 
 const RELEASE_SQL = `
 UPDATE monitors SET next_run_at = ?1
