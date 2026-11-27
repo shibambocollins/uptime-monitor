@@ -87,6 +87,7 @@ Checks: `npm run typecheck && npm run lint && npm test` from the repository root
 | `APP_ORIGIN`                               | var                 | The site's origin, used for the OAuth callback                                                           |
 | `MAX_CHECKS_PER_TICK`                      | var                 | Checks per cron tick (40)                                                                                |
 | `DEMO_TEAM_ID`                             | var                 | The team the read-only demo shows; leave it out to turn the demo off                                     |
+| `HEALTHCHECK_PING_URL`                     | secret (optional)   | A Healthchecks.io ping URL. Every tick pings it, so you get an email if the cron stops                   |
 | `DB`                                       | D1 binding          | The `uptime` database                                                                                    |
 | `LOGIN_LIMITER`, `WRITE_LIMITER`           | rate-limit bindings | Sign-in and write limits                                                                                 |
 

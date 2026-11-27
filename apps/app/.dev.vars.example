@@ -9,3 +9,5 @@ APP_ORIGIN=http://localhost:5173
 #   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 # Use a different key from production's.
 CHANNEL_ENCRYPTION_KEY=
+# Optional: a Healthchecks.io ping URL (the dead man's switch). Leave empty locally.
+HEALTHCHECK_PING_URL=
