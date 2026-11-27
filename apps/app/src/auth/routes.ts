@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { AppDeps, AppEnv } from '../app-env';
+import { clientIp, rateLimit } from '../http/rate-limit';
 import { pkceChallenge, randomToken, safeEqual } from './crypto';
 import { exchangeCode, fetchProfile, GITHUB_AUTHORIZE_URL, GithubError } from './github';
 import { createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS } from './sessions';
@@ -27,6 +28,10 @@ export type LoginError = 'denied' | 'state' | 'github';
  */
 export function authRoutes(deps: AppDeps) {
   const app = new Hono<AppEnv>();
+
+  // Per IP and per route: a callback also costs two GitHub calls and a few rows written.
+  const loginLimit = rateLimit(deps, 'login', (c) => `${c.req.path}:${clientIp(c)}`);
+  app.use('/github/*', loginLimit);
 
   app.get('/github/login', async (c) => {
     const state = randomToken();

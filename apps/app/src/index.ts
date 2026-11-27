@@ -1,10 +1,19 @@
 import { createApp } from './app';
+import type { FetchFn } from './checker/run-checks';
 import { runTick } from './checker/tick';
+import { bindingRateLimit } from './http/rate-limit';
+import { checkHostDns } from './monitors/dns';
 
 // A top-level export, so the tick can reach it through ctx.exports.
 export { CheckRunner } from './checker/runner';
 
-const app = createApp({ fetch: (url, init) => fetch(url, init), now: () => Date.now() });
+const outbound: FetchFn = (url, init) => fetch(url, init);
+const app = createApp({
+  fetch: outbound,
+  now: () => Date.now(),
+  rateLimit: bindingRateLimit,
+  checkHost: (hostname) => checkHostDns(outbound, hostname),
+});
 
 export default {
   fetch: app.fetch,

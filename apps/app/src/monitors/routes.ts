@@ -102,6 +102,8 @@ export function monitorRoutes(deps: AppDeps) {
     if (!body.ok) return body.response;
     const url = validateMonitorUrl(body.data.url);
     if (!url.ok) return urlRejected(c, url);
+    const dns = await checkDns(c, deps, url.href);
+    if (dns) return dns;
 
     // One statement, so the cap and "the project is still live" hold even with requests
     // racing (D1 runs one statement at a time). next_run_at 0: checked on the next tick.
@@ -177,6 +179,10 @@ export function monitorRoutes(deps: AppDeps) {
       const url = validateMonitorUrl(body.data.url);
       if (!url.ok) return urlRejected(c, url);
       changes.url = url.href;
+      if (url.href !== monitor.url) {
+        const dns = await checkDns(c, deps, url.href);
+        if (dns) return dns;
+      }
       // A new target: the old state and streaks describe a different site, so start over
       // and check it on the next tick. (A check of the old URL already in flight can still
       // write its state afterwards; it is corrected by the following checks.)
@@ -232,6 +238,28 @@ export function monitorRoutes(deps: AppDeps) {
 async function loadMonitor(c: Context<AppEnv>) {
   const monitorId = parseId(c.req.param('monitorId'));
   return monitorId === null ? null : findMonitor(c.env.DB, c.var.user.userId, monitorId);
+}
+
+const DNS_MESSAGES = {
+  NOT_FOUND: 'This hostname has no DNS records, so it cannot be reached.',
+  BLOCKED_ADDRESS: 'This hostname points to a private or reserved address.',
+};
+
+/** CLAUDE.md §8 rule 3. Returns the error response, or null if the hostname is fine. */
+async function checkDns(c: Context, deps: AppDeps, href: string) {
+  const result = await deps.checkHost(new URL(href).hostname);
+  if (result.ok) return null;
+  if (result.reason === 'UNAVAILABLE') {
+    console.error({ event: 'dns_check_failed' });
+    return apiError(
+      c,
+      502,
+      'DNS_UNAVAILABLE',
+      "Couldn't look up this hostname right now. Try again in a moment.",
+    );
+  }
+  const message = DNS_MESSAGES[result.reason];
+  return apiError(c, 400, 'URL_NOT_ALLOWED', message, [{ field: 'url', message }]);
 }
 
 const URL_MESSAGES: Record<Exclude<UrlCheck, { ok: true }>['reason'], string> = {

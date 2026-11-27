@@ -6,7 +6,9 @@ import { upsertGithubUser } from '../src/auth/users';
 import { claimDueMonitors } from '../src/checker/claim';
 import { checkGroup } from '../src/checker/group';
 import type { FetchFn } from '../src/checker/run-checks';
+import type { RateLimitFn } from '../src/http/rate-limit';
 import { MAX_BODY_BYTES } from '../src/http/validate';
+import type { CheckHostFn } from '../src/monitors/dns';
 import { MAX_MONITORS_PER_TEAM } from '../src/monitors/routes';
 import { MAX_PROJECTS_PER_TEAM } from '../src/projects/routes';
 import { resetDb } from './fixtures';
@@ -15,7 +17,15 @@ const T0 = Date.UTC(2026, 10, 27, 12, 0, 0);
 const noFetch: FetchFn = async () => {
   throw new Error('the API must not make outbound requests');
 };
-const app = createApp({ fetch: noFetch, now: () => T0 });
+// Swapped per test; reset to "allow" and "a public address" before each.
+let rateLimit: RateLimitFn;
+let checkHost: CheckHostFn;
+const app = createApp({
+  fetch: noFetch,
+  now: () => T0,
+  rateLimit: (...args) => rateLimit(...args),
+  checkHost: (hostname) => checkHost(hostname),
+});
 
 // --- People and teams ---
 
@@ -52,6 +62,8 @@ async function joinTeam(who: Person, teamId: number, role: 'MEMBER' | 'VIEWER') 
 }
 
 beforeEach(async () => {
+  rateLimit = async () => true;
+  checkHost = async () => ({ ok: true, addresses: ['93.184.215.14'] });
   await resetDb();
   alice = await person(1, 'alice');
   bob = await person(2, 'bob');
@@ -560,5 +572,130 @@ describe('a monitor deleted while its check is in flight', () => {
     expect(
       await count(`SELECT count(*) AS n FROM check_events WHERE monitor_id = ?1`, deleted.id),
     ).toBe(0);
+  });
+});
+
+describe('DNS check on monitor URLs (CLAUDE.md §8 rule 3)', () => {
+  it('rejects a hostname that resolves to a private address, or to nothing', async () => {
+    const project = await createProject(alice);
+    for (const reason of ['BLOCKED_ADDRESS', 'NOT_FOUND'] as const) {
+      checkHost = async () => ({ ok: false, reason });
+      const response = await call(alice, 'POST', `/projects/${project.id}/monitors`, {
+        name: 'Sneaky',
+        url: 'https://rebind.example.com/',
+      });
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('URL_NOT_ALLOWED');
+    }
+    expect(await count(`SELECT count(*) AS n FROM monitors`)).toBe(0);
+  });
+
+  it('fails closed with 502 when DNS cannot be asked', async () => {
+    const project = await createProject(alice);
+    checkHost = async () => ({ ok: false, reason: 'UNAVAILABLE' });
+    const response = await call(alice, 'POST', `/projects/${project.id}/monitors`, {
+      name: 'API',
+      url: 'https://shop.example.com/',
+    });
+    expect(response.status).toBe(502);
+    expect(await errorCode(response)).toBe('DNS_UNAVAILABLE');
+    expect(await count(`SELECT count(*) AS n FROM monitors`)).toBe(0);
+  });
+
+  it('checks the hostname on create and on a URL change, not on other edits', async () => {
+    const asked: string[] = [];
+    checkHost = async (hostname) => {
+      asked.push(hostname);
+      return { ok: true, addresses: ['93.184.215.14'] };
+    };
+    const project = await createProject(alice);
+    const monitor = await createMonitor(alice, project.id);
+    await call(alice, 'PATCH', `/monitors/${monitor.id}`, { name: 'Renamed' });
+    await call(alice, 'PATCH', `/monitors/${monitor.id}`, { url: 'https://shop.example.com/' });
+    await call(alice, 'PATCH', `/monitors/${monitor.id}`, { url: 'https://api.example.com/' });
+    expect(asked).toEqual(['shop.example.com', 'api.example.com']);
+
+    checkHost = async () => ({ ok: false, reason: 'BLOCKED_ADDRESS' });
+    const response = await call(alice, 'PATCH', `/monitors/${monitor.id}`, {
+      url: 'https://internal.example.com/',
+    });
+    expect(response.status).toBe(400);
+    expect(await one(`SELECT url FROM monitors WHERE id = ?1`, monitor.id)).toEqual({
+      url: 'https://api.example.com/',
+    });
+  });
+});
+
+describe('rate limits', () => {
+  /** Allows `allowance` calls per bucket and key, and records the keys it was asked about. */
+  function countingLimiter(allowance: number) {
+    const used = new Map<string, number>();
+    const keys: string[] = [];
+    const limiter: RateLimitFn = async (_env, bucket, key) => {
+      const id = `${bucket} ${key}`;
+      keys.push(id);
+      used.set(id, (used.get(id) ?? 0) + 1);
+      return used.get(id)! <= allowance;
+    };
+    return { limiter, keys };
+  }
+
+  it('limits writes per user with a 429 and Retry-After, and never limits reads', async () => {
+    const { limiter, keys } = countingLimiter(2);
+    rateLimit = limiter;
+    const path = `/teams/${alice.teamId}/projects`;
+    expect((await call(alice, 'POST', path, { name: 'A' })).status).toBe(201);
+    expect((await call(alice, 'POST', path, { name: 'B' })).status).toBe(201);
+
+    const limited = await call(alice, 'POST', path, { name: 'C' });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toBe('60');
+    expect(await errorCode(limited)).toBe('RATE_LIMITED');
+    expect(await count(`SELECT count(*) AS n FROM projects`)).toBe(2);
+
+    // Reads still work, and another user has their own allowance.
+    expect((await call(alice, 'GET', path)).status).toBe(200);
+    const bobs = await call(bob, 'POST', `/teams/${bob.teamId}/projects`, { name: 'A' });
+    expect(bobs.status).toBe(201);
+    expect(new Set(keys)).toEqual(
+      new Set([`write user:${alice.userId}`, `write user:${bob.userId}`]),
+    );
+  });
+
+  it('checks the session first, so a stranger cannot use up a user’s allowance', async () => {
+    const { limiter, keys } = countingLimiter(100);
+    rateLimit = limiter;
+    const response = await call(null, 'POST', `/teams/${alice.teamId}/projects`, { name: 'A' });
+    expect(response.status).toBe(401);
+    expect(keys).toEqual([]);
+  });
+
+  it('limits sign-in per client IP and route', async () => {
+    const { limiter, keys } = countingLimiter(1);
+    rateLimit = limiter;
+    const login = (ip: string) =>
+      app.request('/api/v1/auth/github/login', { headers: { 'CF-Connecting-IP': ip } }, env);
+    expect((await login('203.0.113.7')).status).toBe(302);
+    expect((await login('203.0.113.7')).status).toBe(429);
+    expect((await login('198.51.100.9')).status).toBe(302);
+    expect(keys).toEqual([
+      'login /api/v1/auth/github/login:203.0.113.7',
+      'login /api/v1/auth/github/login:203.0.113.7',
+      'login /api/v1/auth/github/login:198.51.100.9',
+    ]);
+  });
+
+  it('lets requests through if the limiter itself fails', async () => {
+    rateLimit = async () => {
+      throw new Error('limiter down');
+    };
+    const response = await call(alice, 'POST', `/teams/${alice.teamId}/projects`, { name: 'A' });
+    expect(response.status).toBe(201);
+  });
+
+  it('has working bindings in the Workers runtime', async () => {
+    // The real bindings from wrangler.jsonc, as the local runtime provides them.
+    expect(await env.LOGIN_LIMITER.limit({ key: 'binding-test' })).toEqual({ success: true });
+    expect(await env.WRITE_LIMITER.limit({ key: 'binding-test' })).toEqual({ success: true });
   });
 });
