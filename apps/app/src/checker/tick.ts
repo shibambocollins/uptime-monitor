@@ -106,6 +106,7 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     rollup: sum(groupResults, (g) => g.rowsWritten.rollup),
     monitor: sum(groupResults, (g) => g.rowsWritten.monitor),
     event: sum(groupResults, (g) => g.rowsWritten.event),
+    alert: sum(groupResults, (g) => g.rowsWritten.alert),
     release: 0,
     total: 0,
   };
@@ -124,6 +125,7 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     rowsWritten.rollup +
     rowsWritten.monitor +
     rowsWritten.event +
+    rowsWritten.alert +
     rowsWritten.release;
 
   await deps.db

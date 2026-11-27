@@ -3,6 +3,10 @@ import { env } from 'cloudflare:workers';
 /** Empties every table. Children first, so no cascade does the work (and hides a bug). */
 export async function resetDb(): Promise<void> {
   const tables = [
+    'alert_deliveries',
+    'alert_events',
+    'notification_channels',
+    'incidents',
     'check_events',
     'check_rollups_hourly',
     'monitors',

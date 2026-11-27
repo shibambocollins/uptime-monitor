@@ -203,13 +203,24 @@ export function monitorRoutes(deps: AppDeps) {
 
     const entries = Object.entries(changes) as [keyof typeof COLUMN, string | number][];
     const sets = entries.map(([field], i) => `${COLUMN[field]} = ?${i + 3}`);
+    const now = deps.now();
     // One row written; project_id never changes here, so its index isn't touched.
-    const row = await c.env.DB.prepare(
+    const update = c.env.DB.prepare(
       `UPDATE monitors SET ${[...sets, ...extra, 'updated_at = ?2'].join(', ')}
        WHERE id = ?1 RETURNING ${MONITOR_COLUMNS}`,
-    )
-      .bind(monitor.id, deps.now(), ...entries.map(([, value]) => value))
-      .first<MonitorRow>();
+    ).bind(monitor.id, now, ...entries.map(([, value]) => value));
+    // A new URL starts the monitor over, so an outage of the old URL ends here (no
+    // RECOVERED alert: the old site didn't recover, it stopped being watched).
+    const statements = extra.includes(`state = 'UP'`)
+      ? [
+          update,
+          c.env.DB.prepare(
+            `UPDATE incidents SET resolved_at = ?2 WHERE monitor_id = ?1 AND resolved_at IS NULL`,
+          ).bind(monitor.id, now),
+        ]
+      : [update];
+    const [result] = await c.env.DB.batch<MonitorRow>(statements);
+    const row = result?.results[0];
     return row ? c.json({ monitor: monitorDto(row) }) : notFound(c);
   });
 
