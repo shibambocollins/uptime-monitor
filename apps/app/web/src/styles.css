@@ -481,3 +481,11 @@ main.wrap {
     padding-inline: 12px;
   }
 }
+
+/* The read-only demo banner. */
+.notice.demo {
+  align-self: stretch;
+  padding: 12px 16px;
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+}

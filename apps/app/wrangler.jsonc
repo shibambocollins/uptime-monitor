@@ -44,6 +44,8 @@
     // The origin browsers use. OAuth's redirect_uri is built from it, so it must match the
     // OAuth App's callback URL exactly. .dev.vars overrides it locally (.dev.vars.example).
     "APP_ORIGIN": "https://uptime-app.uptime-app.workers.dev",
+    // The team the read-only demo shows (src/auth/demo.ts): the developer's own projects.
+    "DEMO_TEAM_ID": "1",
   },
   // Rate limits (CLAUDE.md §8), used through src/http/rate-limit.ts. Counted per Cloudflare
   // location and approximate: a burst can pass a few extra requests before counts sync

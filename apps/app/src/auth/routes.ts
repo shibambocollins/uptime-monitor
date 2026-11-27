@@ -1,9 +1,12 @@
 import { Hono } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { AppDeps, AppEnv } from '../app-env';
+import { apiError } from '../http/errors';
 import { clientIp, rateLimit } from '../http/rate-limit';
+import { parseId } from '../http/validate';
 import { pkceChallenge, randomToken, safeEqual } from './crypto';
 import { exchangeCode, fetchProfile, GITHUB_AUTHORIZE_URL, GithubError } from './github';
+import { DEMO_SESSION_TTL_MS, demoUser } from './demo';
 import { createSession, deleteSession, SESSION_COOKIE, SESSION_TTL_MS } from './sessions';
 import { upsertGithubUser } from './users';
 
@@ -32,6 +35,7 @@ export function authRoutes(deps: AppDeps) {
   // Per IP and per route: a callback also costs two GitHub calls and a few rows written.
   const loginLimit = rateLimit(deps, 'login', (c) => `${c.req.path}:${clientIp(c)}`);
   app.use('/github/*', loginLimit);
+  app.use('/demo', loginLimit);
 
   app.get('/github/login', async (c) => {
     const state = randomToken();
@@ -104,6 +108,40 @@ export function authRoutes(deps: AppDeps) {
       maxAge: SESSION_TTL_MS / 1000,
     });
     return c.redirect('/', 302);
+  });
+
+  /**
+   * Signs the visitor in as the read-only demo user (auth/demo.ts). JSON only, like the
+   * API's writes: a cross-site form can't send it, so another site can't sign a visitor in
+   * as the demo behind their back (login CSRF).
+   */
+  app.post('/demo', async (c) => {
+    if (!(c.req.header('Content-Type') ?? '').startsWith('application/json')) {
+      return apiError(
+        c,
+        415,
+        'UNSUPPORTED_MEDIA_TYPE',
+        'Send JSON (Content-Type: application/json).',
+      );
+    }
+    const teamId = parseId(c.env.DEMO_TEAM_ID ?? '');
+    const userId = teamId === null ? null : await demoUser(c.env.DB, teamId, deps.now());
+    if (userId === null) {
+      return apiError(c, 404, 'DEMO_UNAVAILABLE', 'The demo is not set up on this server.');
+    }
+
+    const previous = getCookie(c, SESSION_COOKIE);
+    if (previous) await deleteSession(c.env.DB, previous);
+    const session = await createSession(c.env.DB, userId, deps.now(), DEMO_SESSION_TTL_MS);
+    setCookie(c, SESSION_COOKIE, session.token, {
+      path: '/',
+      secure: true,
+      httpOnly: true,
+      sameSite: 'Lax',
+      maxAge: DEMO_SESSION_TTL_MS / 1000,
+    });
+    console.log({ event: 'demo_login' });
+    return c.body(null, 204);
   });
 
   // POST, so a link or an image can't log someone out. SameSite=Lax keeps the cookie off

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from './app-env';
 import { requireSession } from './auth/middleware';
+import { DEMO_GITHUB_ID } from './auth/demo';
 import { authRoutes } from './auth/routes';
 import { channelRoutes } from './channels/routes';
 import { apiError } from './http/errors';
@@ -45,9 +46,13 @@ export function createApp(deps: AppDeps) {
     )
       .bind(user.userId)
       .all<{ id: number; name: string; role: string }>();
+    const account = await c.env.DB.prepare(`SELECT github_id FROM users WHERE id = ?1`)
+      .bind(user.userId)
+      .first<{ github_id: number }>();
     return c.json({
       user: { id: user.userId, login: user.login, name: user.name, avatarUrl: user.avatarUrl },
       teams,
+      demo: account?.github_id === DEMO_GITHUB_ID,
     });
   });
 

@@ -54,6 +54,8 @@ export type MonitorState = 'UP' | 'DEGRADED' | 'DOWN';
 export interface Me {
   user: { id: number; login: string; name: string | null; avatarUrl: string | null };
   teams: { id: number; name: string; role: Role }[];
+  /** Signed in as the shared read-only demo user. */
+  demo: boolean;
 }
 
 export interface Project {

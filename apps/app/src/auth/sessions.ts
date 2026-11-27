@@ -22,9 +22,10 @@ export async function createSession(
   db: D1Database,
   userId: number,
   now: number,
+  ttlMs = SESSION_TTL_MS,
 ): Promise<{ token: string; expiresAt: number }> {
   const token = randomToken();
-  const expiresAt = now + SESSION_TTL_MS;
+  const expiresAt = now + ttlMs;
   await db
     .prepare(
       `INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)`,

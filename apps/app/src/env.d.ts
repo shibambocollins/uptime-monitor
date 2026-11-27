@@ -7,6 +7,8 @@ interface Env {
   GITHUB_CLIENT_SECRET: string;
   /** 32 random bytes, base64: AES-GCM key for alert channel configs (channels/secrets.ts). */
   CHANNEL_ENCRYPTION_KEY: string;
+  /** The team the read-only demo shows (auth/demo.ts). Unset: no demo. */
+  DEMO_TEAM_ID?: string;
 }
 
 declare namespace Cloudflare {
@@ -14,5 +16,6 @@ declare namespace Cloudflare {
     GITHUB_CLIENT_ID: string;
     GITHUB_CLIENT_SECRET: string;
     CHANNEL_ENCRYPTION_KEY: string;
+    DEMO_TEAM_ID?: string;
   }
 }
