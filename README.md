@@ -55,6 +55,8 @@ Measured over a 15-day soak test on the live database: **2.16 rows per check**, 
 
 [`apps/chaos-target`](apps/chaos-target) is a small service on Render that goes down, slows down and flaps on a fixed 2-hour schedule. Monitoring it measures the platform itself: time to detect, false alerts during flapping, and missed incidents.
 
+`npm run measure -w apps/chaos-target` compares the live incidents with chaos-target's own schedule (`GET /schedule`) and prints the results as a table: time to detect and to alert for every planned outage, missed outages, false alerts (above all during flapping, which must never alert) and slow phases flagged. Results over 24 hours: _to be added after the first full day of measurement_.
+
 ## Tech
 
 TypeScript (strict) · Cloudflare Workers · D1 (SQLite) · Hono · Zod · React + Vite · Vitest with `@cloudflare/vitest-plugin` (tests run in the Workers runtime against a real local D1) · GitHub Actions.
