@@ -189,6 +189,7 @@ function Summary(props: {
   const uptimes = data?.status.monitors.flatMap((s) => (s.uptime24h === null ? [] : [s])) ?? [];
   const checks = uptimes.reduce((n, s) => n + s.checks24h, 0);
   const ok = uptimes.reduce((n, s) => n + (s.uptime24h ?? 0) * s.checks24h, 0);
+  const working = data?.channels.filter((c) => c.enabled && !c.brokenAt).length ?? 0;
 
   const headline = !data
     ? 'Loading…'
@@ -221,19 +222,19 @@ function Summary(props: {
           </select>
         </div>
       )}
-      {data && enabled.length > 0 && (
-        <dl className="glance" style={{ alignSelf: 'stretch' }}>
-          <div>
+      {data && (
+        <dl className="tiles">
+          <div className="tile">
             <dt>Uptime 24 h</dt>
-            <dd>{checks > 0 ? percent(ok / checks) : 'no checks yet'}</dd>
+            <dd>{checks > 0 ? percent(ok / checks) : '–'}</dd>
           </div>
-          <div>
-            <dt>Alerts</dt>
-            <dd>
-              {data.channels.filter((c) => c.enabled && !c.brokenAt).length > 0
-                ? `${plural(data.channels.length, 'Discord channel', true)}`
-                : 'none: add a Discord channel below'}
-            </dd>
+          <div className="tile">
+            <dt>Down now</dt>
+            <dd>{down}</dd>
+          </div>
+          <div className="tile">
+            <dt>Alert channels</dt>
+            <dd>{working > 0 ? `${working} working` : 'none'}</dd>
           </div>
         </dl>
       )}
@@ -252,11 +253,23 @@ function MonitorsSection(props: {
   const { data, role } = props;
   const writable = role !== 'VIEWER';
   const statusById = new Map(data.status.monitors.map((s) => [s.monitorId, s]));
+  const [addingProject, setAddingProject] = useState(false);
+  const first = data.projects.length === 0;
 
   return (
-    <section className="block" id="monitors">
-      <h2>monitors</h2>
-      {data.projects.length === 0 && (
+    <Panel
+      id="monitors"
+      title="monitors"
+      count={data.monitors.length}
+      action={
+        writable && !first && !addingProject ? (
+          <button type="button" className="textbtn" onClick={() => setAddingProject(true)}>
+            add project
+          </button>
+        ) : null
+      }
+    >
+      {first && (
         <p className="lead">
           Monitors live in projects. Start with a project, for example the name of your app.
         </p>
@@ -271,14 +284,17 @@ function MonitorsSection(props: {
           reload={props.reload}
         />
       ))}
-      {writable && (
+      {writable && (first || addingProject) && (
         <AddProject
           teamId={props.teamId}
-          reload={props.reload}
-          first={data.projects.length === 0}
+          onCancel={first ? undefined : () => setAddingProject(false)}
+          reload={async () => {
+            setAddingProject(false);
+            await props.reload();
+          }}
         />
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -295,7 +311,7 @@ function ProjectGroup(props: {
   const remove = useAction(props.reload);
 
   return (
-    <div className="group">
+    <div className="sheet">
       <div className="group-head">
         <h3>{project.name}</h3>
         {writable && (
@@ -315,7 +331,7 @@ function ProjectGroup(props: {
       </div>
       {remove.error && <p className="error">{remove.error}</p>}
       {monitors.length === 0 ? (
-        <p className="empty small">No monitors in this project yet.</p>
+        <p className="small muted sheet-note">No monitors in this project yet.</p>
       ) : (
         <ul className="list">
           {monitors.map((m) => (
@@ -411,24 +427,10 @@ function stateLook(m: Monitor, s: MonitorStatus | undefined) {
   return { dot: 'up', label: 'up' };
 }
 
-function AddProject(props: { teamId: number; first: boolean; reload: () => Promise<void> }) {
-  const [open, setOpen] = useState(props.first);
+function AddProject(props: { teamId: number; onCancel?: () => void; reload: () => Promise<void> }) {
   const [name, setName] = useState('');
-  const save = useAction(async () => {
-    setName('');
-    setOpen(false);
-    await props.reload();
-  });
+  const save = useAction(props.reload);
 
-  if (!open) {
-    return (
-      <p className="group">
-        <button type="button" className="textbtn" onClick={() => setOpen(true)}>
-          add project
-        </button>
-      </p>
-    );
-  }
   return (
     <Form
       title="New project"
@@ -436,7 +438,7 @@ function AddProject(props: { teamId: number; first: boolean; reload: () => Promi
       busy={save.busy}
       error={save.error}
       onSubmit={() => save.run(() => api('POST', `/teams/${props.teamId}/projects`, { name }))}
-      onCancel={props.first ? undefined : () => setOpen(false)}
+      onCancel={props.onCancel}
     >
       <Field id="project-name" label="Name">
         <input
@@ -527,38 +529,45 @@ function AlertsSection(props: {
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <section className="block" id="alerts">
-      <h2>alerts</h2>
-      <p className="lead">
-        Every Discord channel here gets a message when any monitor goes down and when it recovers.
+    <Panel
+      id="alerts"
+      title="alerts"
+      count={props.channels.length}
+      action={
+        props.writable && !adding ? (
+          <button type="button" className="textbtn" onClick={() => setAdding(true)}>
+            add Discord channel
+          </button>
+        ) : null
+      }
+    >
+      <p className="small muted">
+        Every channel here gets a message when any monitor goes down and when it recovers.
       </p>
-      {props.channels.length === 0 ? (
-        <p className="empty small">No channels yet, so nobody is told when something breaks.</p>
-      ) : (
-        <ul className="list">
-          {props.channels.map((c) => (
-            <ChannelItem key={c.id} channel={c} writable={props.writable} reload={props.reload} />
-          ))}
-        </ul>
-      )}
-      {props.writable &&
-        (adding ? (
-          <AddChannel
-            teamId={props.teamId}
-            onCancel={() => setAdding(false)}
-            reload={async () => {
-              setAdding(false);
-              await props.reload();
-            }}
-          />
-        ) : (
-          <p className="group">
-            <button type="button" className="textbtn" onClick={() => setAdding(true)}>
-              add Discord channel
-            </button>
+      <div className="sheet">
+        {props.channels.length === 0 ? (
+          <p className="small muted sheet-note">
+            No channels yet, so nobody is told when something breaks.
           </p>
-        ))}
-    </section>
+        ) : (
+          <ul className="list">
+            {props.channels.map((c) => (
+              <ChannelItem key={c.id} channel={c} writable={props.writable} reload={props.reload} />
+            ))}
+          </ul>
+        )}
+      </div>
+      {props.writable && adding && (
+        <AddChannel
+          teamId={props.teamId}
+          onCancel={() => setAdding(false)}
+          reload={async () => {
+            setAdding(false);
+            await props.reload();
+          }}
+        />
+      )}
+    </Panel>
   );
 }
 
@@ -676,34 +685,59 @@ function AddChannel(props: { teamId: number; onCancel: () => void; reload: () =>
 
 function IncidentsSection({ incidents }: { incidents: Incident[] }) {
   return (
-    <section className="block" id="incidents">
-      <h2>incidents</h2>
-      {incidents.length === 0 ? (
-        <p className="empty small">No incidents. Each outage will be listed here.</p>
-      ) : (
-        <ul className="list">
-          {incidents.map((i) => (
-            <li key={i.id}>
-              <div className="list-main">
-                <span className="status">
-                  <span className={`dot ${i.resolvedAt ? 'up' : 'down'}`} aria-hidden="true" />
-                  <span>{i.monitorName}</span>
-                </span>
-                <span className="small muted">{i.cause ?? 'unknown cause'}</span>
-              </div>
-              <div className="list-side small">
-                <span>{i.resolvedAt ? `down ${span(i.resolvedAt - i.startedAt)}` : 'ongoing'}</span>
-                <span className="muted">{when(i.startedAt)}</span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <Panel id="incidents" title="incidents" count={incidents.length}>
+      <div className="sheet">
+        {incidents.length === 0 ? (
+          <p className="small muted sheet-note">No incidents. Each outage will be listed here.</p>
+        ) : (
+          <ul className="list">
+            {incidents.map((i) => (
+              <li key={i.id}>
+                <div className="list-main">
+                  <span className="status">
+                    <span className={`dot ${i.resolvedAt ? 'off' : 'ink'}`} aria-hidden="true" />
+                    <span>{i.monitorName}</span>
+                  </span>
+                  <span className="small muted">{i.cause ?? 'unknown cause'}</span>
+                </div>
+                <div className="list-side small">
+                  <span>
+                    {i.resolvedAt ? `down ${span(i.resolvedAt - i.startedAt)}` : 'ongoing'}
+                  </span>
+                  <span className="muted">{when(i.startedAt)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Panel>
   );
 }
 
 // --- Small pieces ---
+
+/** One dashboard section: a grey panel with a title, a count and an optional action. */
+function Panel(props: {
+  id: string;
+  title: string;
+  count: number;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="panel" id={props.id} aria-labelledby={`${props.id}-title`}>
+      <div className="panel-head">
+        <div className="panel-title">
+          <h2 id={`${props.id}-title`}>{props.title}</h2>
+          <span className="count">{props.count}</span>
+        </div>
+        {props.action}
+      </div>
+      {props.children}
+    </section>
+  );
+}
 
 /** Runs an API call, shows its error, then reloads the data. */
 function useAction(after: () => Promise<void>) {
