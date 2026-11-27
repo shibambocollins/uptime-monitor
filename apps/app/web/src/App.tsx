@@ -592,9 +592,7 @@ function ChannelItem(props: { channel: Channel; writable: boolean; reload: () =>
         <span className="small muted">
           Discord webhook <span className="code">…{c.hint}</span>
         </span>
-        {c.brokenReason && (
-          <p className="error">{c.brokenReason} Add it again with a new webhook.</p>
-        )}
+        {c.brokenReason && <p className="error">{c.brokenReason}</p>}
         {props.writable && (
           <div className="row">
             <button

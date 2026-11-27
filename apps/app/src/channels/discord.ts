@@ -88,3 +88,7 @@ async function retryAfterMs(response: Response): Promise<number> {
   }
   return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000) : 5_000;
 }
+
+/** Shown on a channel marked broken after Discord answered 404 or 401 (broken_reason). */
+export const goneReason = (status: number) =>
+  `Discord answered ${status}: the webhook no longer exists. Add the channel again with a new webhook.`;

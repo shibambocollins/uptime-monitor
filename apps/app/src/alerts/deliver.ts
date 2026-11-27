@@ -1,5 +1,5 @@
-import { sendDiscordMessage } from '../channels/discord';
-import { decryptConfig } from '../channels/secrets';
+import { goneReason, sendDiscordMessage } from '../channels/discord';
+import { decryptConfig, EncryptionKeyError, UNREADABLE_REASON } from '../channels/secrets';
 import type { FetchFn } from '../checker/run-checks';
 import { alertMessage } from './message';
 
@@ -175,9 +175,17 @@ export async function deliverDueAlerts(
         url: string;
       };
       webhookUrl = config.url;
-    } catch {
-      // A wrong or missing key (a deploy problem): retrying with the same key won't help.
+    } catch (error) {
+      // Retrying with the same key won't help either way.
       fail('could not decrypt the channel config');
+      // A missing or malformed key is a deploy problem: fixing the secret fixes every
+      // channel, so they are not marked broken. A key that works but doesn't open this
+      // channel means it was replaced: this channel has to be added again.
+      if (!(error instanceof EncryptionKeyError)) {
+        gone.add(row.channel_id);
+        stats.channelsBroken++;
+        writes.push(deps.db.prepare(BROKEN_SQL).bind(row.channel_id, now, UNREADABLE_REASON));
+      }
       continue;
     }
 
@@ -198,7 +206,7 @@ export async function deliverDueAlerts(
     } else if (result.kind === 'gone') {
       gone.add(row.channel_id);
       stats.channelsBroken++;
-      const reason = `Discord answered ${result.status}: the webhook no longer exists.`;
+      const reason = goneReason(result.status);
       fail(reason);
       writes.push(deps.db.prepare(BROKEN_SQL).bind(row.channel_id, now, reason));
     } else if (row.attempts >= MAX_ATTEMPTS) {

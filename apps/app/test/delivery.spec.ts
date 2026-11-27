@@ -8,7 +8,7 @@ import {
   MAX_ATTEMPTS,
 } from '../src/alerts/deliver';
 import { alertMessage, duration, MAX_CONTENT_LENGTH } from '../src/alerts/message';
-import { encryptConfig } from '../src/channels/secrets';
+import { encryptConfig, UNREADABLE_REASON } from '../src/channels/secrets';
 import { checkGroup } from '../src/checker/group';
 import type { FetchFn } from '../src/checker/run-checks';
 import { runTick } from '../src/checker/tick';
@@ -346,18 +346,37 @@ describe('deliverDueAlerts', () => {
     expect(discord.sent).toHaveLength(2);
   });
 
-  it('fails, without sending, when the channel config cannot be decrypted', async () => {
-    await queueAlert('DOWN', [await addChannel(1)]);
+  it('fails, and marks the channel broken, when the key was replaced since it was saved', async () => {
+    const channel = await addChannel(1);
+    await queueAlert('DOWN', [channel]);
     const discord = fakeDiscord();
     const otherKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
-    await deliverDueAlerts(deps(discord.fetch, { encryptionKey: otherKey }));
+    const stats = await deliverDueAlerts(deps(discord.fetch, { encryptionKey: otherKey }));
     expect(discord.sent).toEqual([]);
+    expect(stats.channelsBroken).toBe(1);
     expect(await deliveries()).toEqual([
       expect.objectContaining({
         status: 'FAILED',
         last_error: 'could not decrypt the channel config',
       }),
     ]);
+    const row = await env.DB.prepare(
+      `SELECT broken_reason FROM notification_channels WHERE id = ?1`,
+    )
+      .bind(channel)
+      .first<{ broken_reason: string }>();
+    expect(row!.broken_reason).toBe(UNREADABLE_REASON);
+  });
+
+  it('fails without marking the channel broken when the key secret is missing', async () => {
+    const channel = await addChannel(1);
+    await queueAlert('DOWN', [channel]);
+    const stats = await deliverDueAlerts(deps(fakeDiscord().fetch, { encryptionKey: undefined }));
+    expect(stats).toMatchObject({ failed: 1, channelsBroken: 0 });
+    const row = await env.DB.prepare(`SELECT broken_at FROM notification_channels WHERE id = ?1`)
+      .bind(channel)
+      .first<{ broken_at: number | null }>();
+    expect(row!.broken_at).toBeNull();
   });
 });
 

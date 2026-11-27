@@ -5,7 +5,12 @@ import { createSession } from '../src/auth/sessions';
 import { upsertGithubUser } from '../src/auth/users';
 import { parseDiscordWebhook, sendDiscordMessage } from '../src/channels/discord';
 import { MAX_CHANNELS_PER_TEAM, TEST_MESSAGE } from '../src/channels/routes';
-import { decryptConfig, EncryptionKeyError, encryptConfig } from '../src/channels/secrets';
+import {
+  decryptConfig,
+  EncryptionKeyError,
+  encryptConfig,
+  UNREADABLE_REASON,
+} from '../src/channels/secrets';
 import type { FetchFn } from '../src/checker/run-checks';
 import { resetDb } from './fixtures';
 
@@ -376,6 +381,24 @@ describe('channels API', () => {
     const ok = await call(alice, 'POST', `/channels/${channel.id}/test`);
     expect((await json(ok)).channel).toMatchObject({ brokenAt: null, verifiedAt: T0 });
     expect(sent.at(-1)!.url).toBe(WEBHOOK);
+  });
+
+  it('marks a channel broken, without sending, when the key was replaced since it was saved', async () => {
+    const channel = await addChannel();
+    sent = [];
+    const otherKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
+    const response = await app.request(
+      `/api/v1/channels/${channel.id}/test`,
+      { method: 'POST', headers: { Cookie: alice.cookie } },
+      { ...env, CHANNEL_ENCRYPTION_KEY: otherKey },
+    );
+    expect(response.status).toBe(409);
+    expect((await json(response)).error.code).toBe('CHANNEL_UNREADABLE');
+    expect(sent).toEqual([]);
+    expect(await channelRow(channel.id)).toMatchObject({
+      broken_at: T0,
+      broken_reason: UNREADABLE_REASON,
+    });
   });
 
   it('deletes a channel with its queued deliveries', async () => {
