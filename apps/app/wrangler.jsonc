@@ -45,6 +45,16 @@
     // OAuth App's callback URL exactly. .dev.vars overrides it locally (.dev.vars.example).
     "APP_ORIGIN": "https://uptime-app.uptime-app.workers.dev",
   },
+  // Rate limits (CLAUDE.md §8), used through src/http/rate-limit.ts. Counted per Cloudflare
+  // location and approximate: a burst can pass a few extra requests before counts sync
+  // (Cloudflare docs, "Rate Limiting"). Good enough to stop abuse, not an exact quota.
+  // namespace_id is any integer we choose, unique in the account; the period is 10 or 60 s.
+  "ratelimits": [
+    // Sign-in starts and callbacks, per client IP: nothing else identifies a caller yet.
+    { "name": "LOGIN_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    // Creates, updates and deletes, per signed-in user.
+    { "name": "WRITE_LIMITER", "namespace_id": "1002", "simple": { "limit": 20, "period": 60 } },
+  ],
   // Secrets (not here, never in the repo): GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, set
   // with `npx wrangler secret put` (src/env.d.ts).
 }

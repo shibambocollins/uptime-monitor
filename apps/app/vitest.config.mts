@@ -15,9 +15,12 @@ export default defineConfig(async () => {
         miniflare: {
           bindings: {
             TEST_MIGRATIONS: migrations,
-            // Fake credentials: GitHub itself is faked in test/auth.spec.ts.
+            // Fake credentials: GitHub itself is faked in test/auth.spec.ts. Set here, with
+            // APP_ORIGIN, so a developer's .dev.vars (which wrangler also loads) can't change
+            // what the tests see.
             GITHUB_CLIENT_ID: 'test-client-id',
             GITHUB_CLIENT_SECRET: 'test-client-secret',
+            APP_ORIGIN: 'https://uptime-app.uptime-app.workers.dev',
           },
         },
       }),

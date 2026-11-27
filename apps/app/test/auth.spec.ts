@@ -58,7 +58,12 @@ function setCookies(response: Response): Map<string, SetCookie> {
 }
 
 function setup(github = fakeGithub(), now = () => T0) {
-  const app = createApp({ fetch: github.fetch, now });
+  const app = createApp({
+    fetch: github.fetch,
+    now,
+    rateLimit: async () => true,
+    checkHost: async () => ({ ok: true, addresses: [] }),
+  });
   const request = (path: string, init: RequestInit = {}) => app.request(path, init, env);
   const withCookie = (path: string, cookie: string, init: RequestInit = {}) =>
     request(path, { ...init, headers: { Cookie: cookie } });

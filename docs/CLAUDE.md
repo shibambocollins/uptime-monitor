@@ -71,7 +71,7 @@ Render free → chaos-target (a fixture we monitor like any external site)
   - **Counters must not change in a steady state.** Every counter counts only towards a pending transition and resets when it happens or when the streak breaks (`applyCheck` in `packages/core`). A monitor that stays UP and fast, DEGRADED and slow, or DOWN and failing keeps all three at 0. Otherwise the monitor row is rewritten on every check.
 - **Estimate:** at 2 rows/check, 100 monitors at 5-minute intervals write 100 × 288 × 2 = 57,600 rows/day, plus 1,440 for the per-tick `usage_daily` counter: about 59% of the cap. If one extra index row slips in (3 rows/check) it is about 88%, past the 80% guard below, so P5 in the spike is what proves the model. The old estimate (4 rows/check, "about 100 monitors") was wrong: 4 rows/check caps out at about 85 monitors.
 - **Daily-cap safety:** track rows written per day in a counter; above 80% of the cap, stretch intervals and alert the owner once, so the dashboard never hard-stops.
-- **Min monitor interval:** default 5 minutes; per-team monitor cap.
+- **Min monitor interval:** default 5 minutes; per-team caps of 20 monitors and 20 live projects (`MAX_MONITORS_PER_TEAM`, `MAX_PROJECTS_PER_TEAM`, enforced inside the `INSERT` so concurrent requests cannot pass them). 20 monitors at 5 minutes write about 12% of the daily cap.
 - **Alerts use an outbox table.** A Discord or email failure must never lose or block an alert or a check.
 - **Timestamps:** UTC everywhere, stored as INTEGER epoch milliseconds.
 - **Uptime %:** successful checks / total checks in the window, computed from rollups. Document it in the README.
@@ -98,7 +98,7 @@ Test vectors live in `contract-tests/*.json` so a future port (for example back 
 **SSRF (the checker fetches user-supplied URLs).** Workers cannot pin the resolved IP, so we validate as much as the platform allows and document the gap honestly:
 1. Allow only `http` and `https`. Parse with the WHATWG `URL` parser (it normalises odd IPv4 forms like `http://2130706433/`).
 2. Reject IP literals in loopback, private (RFC 1918), link-local, CGNAT, cloud-metadata ranges, and IPv6 equivalents (including IPv4-mapped IPv6). Reject `localhost`, `*.localhost` and other internal-only names.
-3. Resolve the hostname with DNS-over-HTTPS when a monitor is created or its URL changes, and periodically after; reject if any answer is in a blocked range. This is a check, not a pin: DNS rebinding remains a documented, accepted gap.
+3. Resolve the hostname with DNS-over-HTTPS when a monitor is created or its URL changes, and periodically after; reject if any answer is in a blocked range. This is a check, not a pin: DNS rebinding remains a documented, accepted gap. Built in `apps/app/src/monitors/dns.ts` (2026-11-27): A and AAAA via Cloudflare's DoH JSON API on create and URL change; fails closed (502) if DNS can't be asked. The periodic re-check is not built yet (it costs a row written per monitor per run).
 4. `redirect: 'manual'`; re-validate every `Location`; cap redirects. Per-check timeout via `AbortSignal`, cap bytes read, never return response bodies to users.
 5. One unit test per blocked category. Never weaken these for convenience.
 6. What Workers' `fetch()` actually does (measured 2026-10-21, `global_fetch_strictly_public` on): it does not throw. IP literals in private, loopback, link-local, CGNAT and metadata ranges (including `[::1]`, `[::ffff:127.0.0.1]`, `2130706433`, `0.0.0.0`) get HTTP 403 "error code: 1003" from Cloudflare; hostnames that resolve to private addresses get 530 "error code: 1016". No request reached a private address. The README states this as fact, and our own validation stays: it rejects bad URLs before any request and gives the user a clear error.
@@ -110,7 +110,7 @@ Test vectors live in `contract-tests/*.json` so a future port (for example back 
 - Encrypt channel configs and secrets at rest with AES-GCM (Web Crypto); the key is a Worker secret. Never log tokens, keys, webhook URLs, or secrets.
 - Secrets via `wrangler secret put` and GitHub encrypted secrets only; never in the Wrangler config file or the repo.
 - Every query is scoped to the caller's team. Test cross-team access explicitly (user A must never read team B).
-- Rate-limit monitor creation and auth endpoints. Validate all input with Zod.
+- Rate-limit monitor creation and auth endpoints. Validate all input with Zod. Built with Workers Rate Limiting bindings (`wrangler.jsonc` `ratelimits`, `src/http/rate-limit.ts`): sign-in 10/min per IP and route, writes 20/min per user. Counts are per Cloudflare location and approximate (Cloudflare docs), so they stop abuse but are not exact quotas. Free-plan availability is not stated in the docs, but the Free-plan Worker deployed with both bindings (2026-11-27, version 4820509c). If the limiter fails, requests go through and it is logged.
 - Personal data (emails) is minimal and deletable (POPIA). The demo uses seeded or synthetic data.
 - **Demo mode:** a "try demo" path with seeded read-only data, so recruiters need not authorize GitHub.
 - **No passwords, ever:** secure password hashing does not fit the 10 ms CPU budget. OAuth only.
