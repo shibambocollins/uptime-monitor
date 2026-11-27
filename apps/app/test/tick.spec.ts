@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { claimDueMonitors } from '../src/checker/claim';
 import type { ClaimedMonitor } from '../src/checker/claim';
 import { checkGroup, type GroupResult } from '../src/checker/group';
+import { FAILURE_RECHECK_MS } from '../src/checker/persist';
 import type { FetchFn } from '../src/checker/run-checks';
 import { runTick, type TickDeps } from '../src/checker/tick';
 import worker from '../src/index';
@@ -176,6 +177,45 @@ describe('runTick', () => {
     expect(await all('SELECT total, failures FROM check_rollups_hourly')).toEqual([
       { total: 3, failures: 3 },
     ]);
+  });
+
+  it('re-checks a failing monitor at the next tick, so DOWN takes minutes, not intervals', async () => {
+    const id = await addMonitor({ interval_seconds: 300 });
+    // The checks read the clock for their checkedAt, so it moves with each tick.
+    let clock = T0;
+    const { deps: d } = deps(respond(503), { now: () => clock });
+    const tickAt = (time: number) => {
+      clock = time;
+      return runTick(time, d);
+    };
+    const nextRun = async () =>
+      (await env.DB.prepare(`SELECT next_run_at FROM monitors WHERE id = ?1`)
+        .bind(id)
+        .first<{ next_run_at: number }>())!.next_run_at;
+
+    await tickAt(T0);
+    expect(await nextRun()).toBe(T0 + FAILURE_RECHECK_MS);
+    await tickAt(T0 + MINUTE);
+    expect(await nextRun()).toBe(T0 + MINUTE + FAILURE_RECHECK_MS);
+    const third = await tickAt(T0 + 2 * MINUTE);
+
+    expect(third.transitions).toEqual([{ monitorId: id, from: 'UP', to: 'DOWN' }]);
+    // Once DOWN, back to the normal interval: a monitor that stays down is not hammered.
+    expect(await nextRun()).toBe(T0 + 2 * MINUTE + 300_000);
+    await tickAt(T0 + 3 * MINUTE);
+    expect(await nextRun()).toBe(T0 + 2 * MINUTE + 300_000);
+  });
+
+  it('keeps the normal interval after a success that ends a failure streak', async () => {
+    const id = await addMonitor({ interval_seconds: 300 });
+    await runTick(T0, deps(respond(503)).deps);
+    await runTick(T0 + MINUTE, deps(respond(200), { now: () => T0 + MINUTE }).deps);
+    const row = await env.DB.prepare(
+      `SELECT consecutive_failures, next_run_at FROM monitors WHERE id = ?1`,
+    )
+      .bind(id)
+      .first();
+    expect(row).toEqual({ consecutive_failures: 0, next_run_at: T0 + MINUTE + 300_000 });
   });
 
   it('records the recovery as an event even though the check succeeded', async () => {

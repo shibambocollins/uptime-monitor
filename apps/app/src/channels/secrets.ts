@@ -13,6 +13,13 @@ const IV_BYTES = 12; // the size AES-GCM is designed for (NIST SP 800-38D)
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+/**
+ * Why a saved channel can't be used any more: it was encrypted under a different key (the
+ * secret was replaced) or the stored text is damaged. Only adding it again fixes that.
+ */
+export const UNREADABLE_REASON =
+  'Saved under an earlier server encryption key, so it can no longer be read. Delete it and add it again.';
+
 /** Thrown when the key secret is missing or malformed: a deploy problem, not user input. */
 export class EncryptionKeyError extends Error {
   constructor() {
