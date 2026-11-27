@@ -1,3 +1,4 @@
+import type { DeliveryStats } from '../alerts/deliver';
 import { type ClaimedMonitor, claimDueMonitors } from './claim';
 import type { GroupResult } from './group';
 import { releaseStatement, type StatementKind } from './persist';
@@ -26,6 +27,12 @@ export const CHECKS_PER_GROUP = 8;
 export const TICK_DEADLINE_MS = 50_000;
 
 /**
+ * Alerts are only sent if at least this long is left before the deadline: enough for a
+ * few sends. Otherwise they wait for the next tick, a minute later.
+ */
+export const MIN_DELIVERY_WINDOW_MS = 15_000;
+
+/**
  * Checks and records one group in a separate invocation (CheckRunner.checkGroup through
  * ctx.exports).
  */
@@ -40,6 +47,8 @@ export interface TickDeps {
   maxChecks: number;
   /** Defaults to TICK_DEADLINE_MS; tests shorten it. */
   deadlineMs?: number;
+  /** Sends due alerts (AlertSender through ctx.exports). Optional: tests leave it out. */
+  deliverAlerts?: (deadline: number) => Promise<DeliveryStats>;
 }
 
 export interface TickStats {
@@ -53,7 +62,8 @@ export interface TickStats {
   slow: number;
   transitions: { monitorId: number; from: string; to: string }[];
   statements: number;
-  rowsWritten: Record<'claim' | StatementKind | 'total', number>;
+  rowsWritten: Record<'claim' | StatementKind | 'delivery' | 'total', number>;
+  deliveries: DeliveryStats | null;
   rowsRead: number;
   latencyMs: { p50: number | null; p95: number | null; max: number | null };
   durationMs: number;
@@ -98,6 +108,20 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     }
   }
 
+  // After the checks, so an alert queued by this tick goes out in this tick.
+  let deliveries: DeliveryStats | null = null;
+  if (
+    deps.deliverAlerts &&
+    deps.now() + MIN_DELIVERY_WINDOW_MS <= deadline &&
+    (await alertsDue(deps.db, deps.now()))
+  ) {
+    try {
+      deliveries = await deps.deliverAlerts(deadline);
+    } catch (error) {
+      deps.log({ event: 'alert_delivery_failed', tickId: deps.tickId, error: String(error) });
+    }
+  }
+
   const checkedIds = new Set(groupResults.flatMap((g) => g.checkedIds));
   const unchecked = claim.monitors.filter((monitor) => !checkedIds.has(monitor.id));
 
@@ -107,6 +131,7 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     monitor: sum(groupResults, (g) => g.rowsWritten.monitor),
     event: sum(groupResults, (g) => g.rowsWritten.event),
     alert: sum(groupResults, (g) => g.rowsWritten.alert),
+    delivery: deliveries?.rowsWritten ?? 0,
     release: 0,
     total: 0,
   };
@@ -126,6 +151,7 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     rowsWritten.monitor +
     rowsWritten.event +
     rowsWritten.alert +
+    rowsWritten.delivery +
     rowsWritten.release;
 
   await deps.db
@@ -144,6 +170,7 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     transitions: groupResults.flatMap((g) => g.transitions),
     statements: sum(groupResults, (g) => g.statements),
     rowsWritten,
+    deliveries,
     rowsRead,
     latencyMs: latencySummary(groupResults.flatMap((g) => g.latenciesMs)),
     durationMs: deps.now() - startedAt,
@@ -155,6 +182,21 @@ export async function runTick(scheduledTime: number, deps: TickDeps): Promise<Ti
     ...stats,
   });
   return stats;
+}
+
+/**
+ * Whether any alert is due, so the tick only starts an AlertSender invocation when there is
+ * work (otherwise one extra invocation every minute). Uses the partial index
+ * alert_deliveries_due, which holds only pending rows: a near-empty read.
+ */
+async function alertsDue(db: D1Database, now: number): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS due FROM alert_deliveries WHERE status = 'PENDING' AND next_attempt_at <= ?1 LIMIT 1`,
+    )
+    .bind(now)
+    .first();
+  return row !== null;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
