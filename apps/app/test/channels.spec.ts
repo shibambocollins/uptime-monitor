@@ -447,3 +447,26 @@ describe('channels API', () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe('a broken encryption key on the server', () => {
+  it('says so, and sends nothing for a channel it cannot save', async () => {
+    const response = await app.request(
+      `/api/v1/teams/${alice.teamId}/channels`,
+      {
+        method: 'POST',
+        headers: { Cookie: alice.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'DISCORD', name: 'Alerts', webhookUrl: WEBHOOK }),
+      },
+      { ...env, CHANNEL_ENCRYPTION_KEY: 'not-32-bytes' },
+    );
+    expect(response.status).toBe(500);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      'SERVER_MISCONFIGURED',
+    );
+    expect(sent).toEqual([]);
+    const { n } = (await env.DB.prepare(`SELECT count(*) AS n FROM notification_channels`).first<{
+      n: number;
+    }>())!;
+    expect(n).toBe(0);
+  });
+});

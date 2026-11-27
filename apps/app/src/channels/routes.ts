@@ -5,7 +5,7 @@ import { apiError, notFound, readOnly } from '../http/errors';
 import { parseId, parseJsonBody } from '../http/validate';
 import { canWrite, type Role, teamRole } from '../teams/access';
 import { type DiscordWebhook, parseDiscordWebhook, sendDiscordMessage } from './discord';
-import { decryptConfig, encryptConfig } from './secrets';
+import { decryptConfig, EncryptionKeyError, encryptConfig } from './secrets';
 
 /** Alert channels per team. Each one gets a delivery row per alert, so keep it small. */
 export const MAX_CHANNELS_PER_TEAM = 5;
@@ -92,11 +92,14 @@ export function channelRoutes(deps: AppDeps) {
       .first<{ n: number }>();
     if (existing!.n >= MAX_CHANNELS_PER_TEAM) return limitReached(c);
 
+    // Encrypted before the test message: if the server's key is broken, nothing is sent
+    // for a channel that can't be saved.
+    const config = await encrypt(c, teamId, webhook);
+    if (config instanceof Response) return config;
     const failed = await verify(c, deps, webhook);
     if (failed) return failed;
 
     const now = deps.now();
-    const config = await encryptConfig(c.env.CHANNEL_ENCRYPTION_KEY, teamId, { url: webhook.url });
     const row = await c.env.DB.prepare(
       `INSERT INTO notification_channels
          (team_id, type, name, config_encrypted, hint, verified_at, created_at, updated_at)
@@ -136,13 +139,11 @@ export function channelRoutes(deps: AppDeps) {
     if (body.data.webhookUrl !== undefined) {
       const webhook = parseDiscordWebhook(body.data.webhookUrl);
       if (!webhook) return badWebhook(c);
+      const config = await encrypt(c, channel.team_id, webhook);
+      if (config instanceof Response) return config;
       const failed = await verify(c, deps, webhook);
       if (failed) return failed;
-      const config = { url: webhook.url };
-      set(
-        'config_encrypted',
-        await encryptConfig(c.env.CHANNEL_ENCRYPTION_KEY, channel.team_id, config),
-      );
+      set('config_encrypted', config);
       set('hint', webhook.hint);
       // A new, working webhook: whatever broke the old one no longer applies.
       set('verified_at', now);
@@ -220,6 +221,22 @@ async function loadChannel(c: Context<AppEnv>) {
   )
     .bind(channelId, c.var.user.userId)
     .first<ChannelRow & { role: Role }>();
+}
+
+/** The stored config, or a 500 that says what is wrong when the key secret is. */
+async function encrypt(c: Context<AppEnv>, teamId: number, webhook: DiscordWebhook) {
+  try {
+    return await encryptConfig(c.env.CHANNEL_ENCRYPTION_KEY, teamId, { url: webhook.url });
+  } catch (error) {
+    if (!(error instanceof EncryptionKeyError)) throw error;
+    console.error({ event: 'channel_key_invalid' });
+    return apiError(
+      c,
+      500,
+      'SERVER_MISCONFIGURED',
+      "Alerts aren't set up on the server: its CHANNEL_ENCRYPTION_KEY is missing or invalid.",
+    );
+  }
 }
 
 /** Sends the test message (CLAUDE.md §7: "Send a test message on save"). */

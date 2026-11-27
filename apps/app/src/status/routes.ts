@@ -17,6 +17,7 @@ interface MonitorStatsRow {
   id: number;
   interval_seconds: number;
   next_run_at: number;
+  last_event_at: number | null;
   total: number | null;
   failures: number | null;
   latency_sum_ms: number | null;
@@ -30,6 +31,18 @@ interface IncidentRow {
   started_at: number;
   resolved_at: number | null;
   cause: string | null;
+}
+
+/**
+ * There is no last_checked_at column (CLAUDE.md §10). The claim moves next_run_at one
+ * interval ahead, so a normal check was one interval before it; 0 means "due now" (never
+ * checked, or reset by a URL change). A failure re-checked early (FAILURE_RECHECK_MS) breaks
+ * that sum, but every failure is stored as an event, so the later of the two is right.
+ */
+function lastChecked(row: MonitorStatsRow): number | null {
+  const fromClaim = row.next_run_at > 0 ? row.next_run_at - row.interval_seconds * 1000 : null;
+  if (fromClaim === null) return row.last_event_at;
+  return Math.max(fromClaim, row.last_event_at ?? 0);
 }
 
 /** Mounted at /api/v1 behind requireSession (app.ts). */
@@ -47,6 +60,8 @@ export function statusRoutes(deps: { now: () => number }) {
     const [monitors, incidents] = (await c.env.DB.batch([
       c.env.DB.prepare(
         `SELECT mo.id, mo.interval_seconds, mo.next_run_at,
+           (SELECT MAX(ev.checked_at) FROM check_events AS ev
+            WHERE ev.monitor_id = mo.id) AS last_event_at,
            SUM(r.total) AS total, SUM(r.failures) AS failures,
            SUM(r.latency_sum_ms) AS latency_sum_ms,
            (SELECT i.started_at FROM incidents AS i
@@ -72,10 +87,7 @@ export function statusRoutes(deps: { now: () => number }) {
         const total = row.total ?? 0;
         return {
           monitorId: row.id,
-          // The claim moves next_run_at one interval ahead, so the last check is one
-          // interval before it (there is no last_checked_at column, CLAUDE.md §10).
-          // 0 means "due now": never checked, or reset by a URL change.
-          lastCheckedAt: row.next_run_at > 0 ? row.next_run_at - row.interval_seconds * 1000 : null,
+          lastCheckedAt: lastChecked(row),
           checks24h: total,
           uptime24h: total > 0 ? (total - (row.failures ?? 0)) / total : null,
           avgLatencyMs24h: total > 0 ? Math.round((row.latency_sum_ms ?? 0) / total) : null,

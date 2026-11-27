@@ -39,9 +39,20 @@ ON CONFLICT (monitor_id, hour) DO UPDATE SET
   lt_5000 = lt_5000 + excluded.lt_5000,
   ge_5000 = ge_5000 + excluded.ge_5000`;
 
+/**
+ * A monitor with failures counting towards DOWN is checked again at the next tick, not a
+ * whole interval later, so an outage is confirmed in about 2 minutes instead of 10-15.
+ * Half a tick, so it is due when the next tick claims (ticks are a minute apart). Costs no
+ * extra row: the monitor row is rewritten anyway, because its failure counter changed.
+ */
+export const FAILURE_RECHECK_MS = 30_000;
+
+// ?6: when to re-check early, or NULL for the normal interval (set by the claim). MIN, so an
+// early re-check never pushes a check later.
 const MONITOR_SQL = `
 UPDATE monitors
-SET state = ?2, consecutive_failures = ?3, consecutive_slow = ?4, consecutive_successes = ?5
+SET state = ?2, consecutive_failures = ?3, consecutive_slow = ?4, consecutive_successes = ?5,
+  next_run_at = CASE WHEN ?6 IS NULL THEN next_run_at ELSE MIN(next_run_at, ?6) END
 WHERE id = ?1`;
 
 const EVENT_SQL = `
@@ -132,6 +143,9 @@ export function buildWriteStatements(
             after.consecutiveFailures,
             after.consecutiveSlow,
             after.consecutiveSuccesses,
+            after.state !== 'DOWN' && after.consecutiveFailures > 0
+              ? result.checkedAt + FAILURE_RECHECK_MS
+              : null,
           ),
       );
     }
