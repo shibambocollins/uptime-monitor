@@ -14,7 +14,7 @@ export interface GroupResult {
   slow: number;
   transitions: ({ monitorId: number } & Transition)[];
   statements: number;
-  rowsWritten: { rollup: number; monitor: number; event: number };
+  rowsWritten: { rollup: number; monitor: number; event: number; alert: number };
   rowsRead: number;
   /** Time to response headers, for checks that got a response. */
   latenciesMs: number[];
@@ -36,11 +36,11 @@ export async function checkGroup(
   const { statements, kinds } = buildWriteStatements(deps.db, checks);
   const batch = statements.length > 0 ? await deps.db.batch(statements) : [];
 
-  const rowsWritten = { rollup: 0, monitor: 0, event: 0 };
+  const rowsWritten = { rollup: 0, monitor: 0, event: 0, alert: 0 };
   let rowsRead = 0;
   batch.forEach((result, i) => {
     const kind = kinds[i];
-    if (kind === 'rollup' || kind === 'monitor' || kind === 'event') {
+    if (kind === 'rollup' || kind === 'monitor' || kind === 'event' || kind === 'alert') {
       rowsWritten[kind] += result.meta.rows_written;
     }
     rowsRead += result.meta.rows_read;

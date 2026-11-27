@@ -265,7 +265,7 @@ describe('runTick fan-out', () => {
         slow: 0,
         transitions: [],
         statements: 0,
-        rowsWritten: { rollup: 0, monitor: 0, event: 0 },
+        rowsWritten: { rollup: 0, monitor: 0, event: 0, alert: 0 },
         rowsRead: 0,
         latenciesMs: group.map(() => 50),
       };
@@ -346,7 +346,7 @@ describe('CheckRunner', () => {
     expect(result).toMatchObject({ checkedIds: [id], failures: 1, latenciesMs: [] });
     // The runner wrote the group itself: rollup + failure event (2 rows: the row and its
     // check_events_monitor_id entry) + monitor row (counter 0 -> 1).
-    expect(result.rowsWritten).toEqual({ rollup: 1, monitor: 1, event: 2 });
+    expect(result.rowsWritten).toEqual({ rollup: 1, monitor: 1, event: 2, alert: 0 });
     expect(await all('SELECT monitor_id, error FROM check_events')).toEqual([
       { monitor_id: id, error: expect.stringMatching(/^TypeError/) },
     ]);
