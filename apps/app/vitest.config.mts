@@ -23,6 +23,8 @@ export default defineConfig(async () => {
             APP_ORIGIN: 'https://uptime-app.uptime-app.workers.dev',
             // A fixed test key (32 bytes of 0x01), never used outside tests.
             CHANNEL_ENCRYPTION_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=',
+            // Empty, so tests never ping a real dead man's switch from a developer's .dev.vars.
+            HEALTHCHECK_PING_URL: '',
           },
         },
       }),

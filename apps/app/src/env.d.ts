@@ -9,6 +9,8 @@ interface Env {
   CHANNEL_ENCRYPTION_KEY: string;
   /** The team the read-only demo shows (auth/demo.ts). Unset: no demo. */
   DEMO_TEAM_ID?: string;
+  /** Healthchecks.io ping URL for the dead man's switch (checker/heartbeat.ts). Optional. */
+  HEALTHCHECK_PING_URL?: string;
 }
 
 declare namespace Cloudflare {
@@ -17,5 +19,6 @@ declare namespace Cloudflare {
     GITHUB_CLIENT_SECRET: string;
     CHANNEL_ENCRYPTION_KEY: string;
     DEMO_TEAM_ID?: string;
+    HEALTHCHECK_PING_URL?: string;
   }
 }
