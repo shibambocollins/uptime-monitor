@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { AppDeps, AppEnv } from './app-env';
 import { requireSession } from './auth/middleware';
 import { authRoutes } from './auth/routes';
+import { channelRoutes } from './channels/routes';
 import { apiError } from './http/errors';
 import { rateLimit } from './http/rate-limit';
 import { monitorRoutes } from './monitors/routes';
@@ -21,7 +22,8 @@ export function createApp(deps: AppDeps) {
   // Writes are rate-limited per user after the session check (reads only cost rows read).
   const session = requireSession(deps);
   const writeLimit = rateLimit(deps, 'write', (c) => `user:${c.var.user.userId}`);
-  for (const prefix of ['/api/v1/teams/*', '/api/v1/projects/*', '/api/v1/monitors/*']) {
+  const prefixes = ['/teams/*', '/projects/*', '/monitors/*', '/channels/*'];
+  for (const prefix of prefixes.map((p) => `/api/v1${p}`)) {
     app.use(prefix, session);
     app.use(prefix, (c, next) =>
       c.req.method === 'GET' || c.req.method === 'HEAD' ? next() : writeLimit(c, next),
@@ -29,6 +31,7 @@ export function createApp(deps: AppDeps) {
   }
   app.route('/api/v1', projectRoutes(deps));
   app.route('/api/v1', monitorRoutes(deps));
+  app.route('/api/v1', channelRoutes(deps));
 
   /** The signed-in user and their teams. A DTO, not database rows (CLAUDE.md §12). */
   app.get('/api/v1/me', requireSession(deps), async (c) => {

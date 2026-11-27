@@ -5,11 +5,14 @@
 interface Env {
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
+  /** 32 random bytes, base64: AES-GCM key for alert channel configs (channels/secrets.ts). */
+  CHANNEL_ENCRYPTION_KEY: string;
 }
 
 declare namespace Cloudflare {
   interface Env {
     GITHUB_CLIENT_ID: string;
     GITHUB_CLIENT_SECRET: string;
+    CHANNEL_ENCRYPTION_KEY: string;
   }
 }
