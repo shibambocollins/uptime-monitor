@@ -21,6 +21,8 @@ export default defineConfig(async () => {
             GITHUB_CLIENT_ID: 'test-client-id',
             GITHUB_CLIENT_SECRET: 'test-client-secret',
             APP_ORIGIN: 'https://uptime-app.uptime-app.workers.dev',
+            // A fixed test key (32 bytes of 0x01), never used outside tests.
+            CHANNEL_ENCRYPTION_KEY: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=',
           },
         },
       }),

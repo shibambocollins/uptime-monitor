@@ -5,3 +5,7 @@ GITHUB_CLIENT_SECRET=
 # Overrides the production value in wrangler.jsonc: the origin the browser uses in dev
 # (Vite on 5173, which proxies /api to wrangler dev on 8787).
 APP_ORIGIN=http://localhost:5173
+# AES-GCM key for alert channel configs: 32 random bytes, base64. Make one with
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# Use a different key from production's.
+CHANNEL_ENCRYPTION_KEY=
