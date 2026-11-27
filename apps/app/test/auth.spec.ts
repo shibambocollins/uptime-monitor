@@ -280,6 +280,7 @@ describe('GET /api/v1/me', () => {
         avatarUrl: PROFILE.avatar_url,
       },
       teams: [{ id: expect.any(Number), name: "octo's team", role: 'OWNER' }],
+      demo: false,
     });
   });
 
@@ -371,5 +372,85 @@ describe('unknown API paths', () => {
     expect(await response.json()).toEqual({
       error: { code: 'NOT_FOUND', message: 'No such endpoint.' },
     });
+  });
+});
+
+describe('POST /api/v1/auth/demo', () => {
+  const app = () =>
+    createApp({
+      fetch: fakeGithub().fetch,
+      now: () => T0,
+      rateLimit: async () => true,
+      checkHost: async () => ({ ok: true, addresses: [] }),
+    });
+  const demoLogin = (teamId: string | undefined, contentType = 'application/json') =>
+    app().request(
+      '/api/v1/auth/demo',
+      { method: 'POST', headers: { 'Content-Type': contentType }, body: '{}' },
+      { ...env, DEMO_TEAM_ID: teamId },
+    );
+
+  /** A real owner's team, which the demo will show. */
+  async function ownerTeam() {
+    await setup().signIn();
+    return (await env.DB.prepare(`SELECT id FROM teams`).first<{ id: number }>())!.id;
+  }
+
+  it('signs in as a read-only VIEWER of the demo team, for a day', async () => {
+    const teamId = await ownerTeam();
+    const response = await demoLogin(String(teamId));
+    expect(response.status).toBe(204);
+    const session = setCookies(response).get('__Host-session')!;
+    expect(session.attributes).toContain('Max-Age=86400');
+
+    const cookie = `__Host-session=${session.value}`;
+    const me = await app().request('/api/v1/me', { headers: { Cookie: cookie } }, env);
+    expect(await me.json()).toMatchObject({
+      user: { login: 'demo' },
+      teams: [{ id: teamId, role: 'VIEWER' }],
+      demo: true,
+    });
+
+    const write = await app().request(
+      `/api/v1/teams/${teamId}/projects`,
+      {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Nope' }),
+      },
+      env,
+    );
+    expect(write.status).toBe(403);
+  });
+
+  it('reuses one demo user, and puts it back to VIEWER if it was changed', async () => {
+    const teamId = await ownerTeam();
+    await demoLogin(String(teamId));
+    await env.DB.prepare(
+      `UPDATE team_members SET role = 'OWNER' WHERE user_id = (SELECT id FROM users WHERE github_id = 0)`,
+    ).run();
+    await demoLogin(String(teamId));
+
+    expect(await count(`SELECT COUNT(*) AS n FROM users WHERE github_id = 0`)).toBe(1);
+    const roles = await env.DB.prepare(
+      `SELECT team_id, role FROM team_members WHERE user_id = (SELECT id FROM users WHERE github_id = 0)`,
+    ).all();
+    expect(roles.results).toEqual([{ team_id: teamId, role: 'VIEWER' }]);
+  });
+
+  it('is unavailable when no demo team is set or the team does not exist', async () => {
+    for (const teamId of [undefined, '', '999']) {
+      const response = await demoLogin(teamId);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ error: { code: 'DEMO_UNAVAILABLE' } });
+    }
+    expect(await count(`SELECT COUNT(*) AS n FROM sessions`)).toBe(0);
+  });
+
+  it('accepts only JSON, so another site cannot sign a visitor in as the demo', async () => {
+    const teamId = await ownerTeam();
+    const response = await demoLogin(String(teamId), 'application/x-www-form-urlencoded');
+    expect(response.status).toBe(415);
+    expect(await count(`SELECT COUNT(*) AS n FROM users WHERE github_id = 0`)).toBe(0);
   });
 });

@@ -72,6 +72,8 @@ function Shell({ nav, children }: { nav?: ReactNode; children: ReactNode }) {
 
 function SignedOut() {
   const code = new URLSearchParams(location.search).get('login_error');
+  const demo = useAction(async () => location.assign('/'));
+  const tryDemo = () => demo.run(() => api('POST', '/auth/demo', {}));
   return (
     <Shell>
       <section className="intro">
@@ -81,10 +83,19 @@ function SignedOut() {
           message when one goes down and when it comes back.
         </p>
         {code && <p className="error">{LOGIN_ERRORS[code] ?? 'Sign-in failed. Try again.'}</p>}
-        <a className="btn" href="/api/v1/auth/github/login">
-          Sign in with GitHub
-        </a>
-        <p className="small muted">Only your public GitHub profile is read. No password.</p>
+        <div className="row">
+          <a className="btn" href="/api/v1/auth/github/login">
+            Sign in with GitHub
+          </a>
+          <button type="button" className="textbtn" disabled={demo.busy} onClick={tryDemo}>
+            {demo.busy ? 'opening the demo…' : 'or try the demo, no sign-in'}
+          </button>
+        </div>
+        {demo.error && <p className="error">{demo.error}</p>}
+        <p className="small muted">
+          Only your public GitHub profile is read. No password. The demo is read-only and shows the
+          developer's own projects.
+        </p>
       </section>
     </Shell>
   );
@@ -158,7 +169,14 @@ function Dashboard({ me }: { me: Me }) {
 
   return (
     <Shell nav={nav}>
-      <Summary team={team} teams={me.teams} onTeam={setTeamId} data={data} loadError={loadError} />
+      <Summary
+        team={team}
+        teams={me.teams}
+        onTeam={setTeamId}
+        data={data}
+        loadError={loadError}
+        demo={me.demo}
+      />
       {data && (
         <>
           <MonitorsSection data={data} role={team.role} teamId={teamId} reload={load} />
@@ -181,6 +199,7 @@ function Summary(props: {
   onTeam: (id: number) => void;
   data: Data | null;
   loadError: string | null;
+  demo: boolean;
 }) {
   const { data } = props;
   const enabled = data?.monitors.filter((m) => m.enabled) ?? [];
@@ -203,6 +222,12 @@ function Summary(props: {
 
   return (
     <section className="intro">
+      {props.demo && (
+        <p className="notice demo">
+          You're looking at a read-only demo: the developer's own projects, checked live.{' '}
+          <a href="/api/v1/auth/github/login">Sign in with GitHub</a> to monitor your own sites.
+        </p>
+      )}
       <span className="kind">{props.team.name}</span>
       <h1>{headline}</h1>
       {props.loadError && <p className="error">{props.loadError}</p>}
