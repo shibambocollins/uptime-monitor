@@ -7,6 +7,7 @@ import { apiError } from './http/errors';
 import { rateLimit } from './http/rate-limit';
 import { monitorRoutes } from './monitors/routes';
 import { projectRoutes } from './projects/routes';
+import { statusRoutes } from './status/routes';
 
 /** The /api/v1 app. Everything else is static assets (wrangler.jsonc "assets"). */
 export function createApp(deps: AppDeps) {
@@ -32,6 +33,7 @@ export function createApp(deps: AppDeps) {
   app.route('/api/v1', projectRoutes(deps));
   app.route('/api/v1', monitorRoutes(deps));
   app.route('/api/v1', channelRoutes(deps));
+  app.route('/api/v1', statusRoutes(deps));
 
   /** The signed-in user and their teams. A DTO, not database rows (CLAUDE.md §12). */
   app.get('/api/v1/me', requireSession(deps), async (c) => {

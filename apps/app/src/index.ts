@@ -4,7 +4,8 @@ import { runTick } from './checker/tick';
 import { bindingRateLimit } from './http/rate-limit';
 import { checkHostDns } from './monitors/dns';
 
-// A top-level export, so the tick can reach it through ctx.exports.
+// Top-level exports, so the tick can reach them through ctx.exports.
+export { AlertSender } from './alerts/sender';
 export { CheckRunner } from './checker/runner';
 
 const outbound: FetchFn = (url, init) => fetch(url, init);
@@ -25,6 +26,7 @@ export default {
         db: env.DB,
         // Each call is a separate invocation with its own CPU budget (checker/runner.ts).
         runGroup: (monitors) => ctx.exports.CheckRunner.checkGroup(monitors),
+        deliverAlerts: (deadline) => ctx.exports.AlertSender.deliver(deadline),
         now: () => Date.now(),
         // Workers Logs indexes the fields of a logged object (CLAUDE.md §11).
         log: (entry) => console.log(entry),

@@ -699,3 +699,76 @@ describe('rate limits', () => {
     expect(await env.WRITE_LIMITER.limit({ key: 'binding-test' })).toEqual({ success: true });
   });
 });
+
+describe('team status', () => {
+  const HOUR = 60 * 60_000;
+  const thisHour = Math.floor(T0 / HOUR) * HOUR;
+
+  async function rollup(monitorId: number, hour: number, total: number, failures: number) {
+    await env.DB.prepare(
+      `INSERT INTO check_rollups_hourly (monitor_id, hour, total, failures, latency_sum_ms,
+         lt_250, lt_500, lt_1000, lt_2500, lt_5000, ge_5000)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?3, 0, 0, 0, 0, 0)`,
+    )
+      .bind(monitorId, hour, total, failures, total * 100)
+      .run();
+  }
+
+  it('sums the last 24 hours of rollups and reports open incidents', async () => {
+    const project = await createProject(alice);
+    const checked = await createMonitor(alice, project.id);
+    const fresh = await createMonitor(alice, project.id, { name: 'API' });
+    await rollup(checked.id, thisHour, 10, 1);
+    await rollup(checked.id, thisHour - 5 * HOUR, 10, 0);
+    await rollup(checked.id, thisHour - 30 * HOUR, 50, 50); // older than a day: left out
+    await env.DB.prepare(`UPDATE monitors SET next_run_at = ?2 WHERE id = ?1`)
+      .bind(checked.id, T0 + 60_000)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO incidents (monitor_id, started_at, resolved_at, cause) VALUES
+         (?1, ?2, ?3, 'timeout'), (?1, ?4, NULL, 'unexpected status 503')`,
+    )
+      .bind(checked.id, T0 - 3 * HOUR, T0 - 2 * HOUR, T0 - HOUR)
+      .run();
+
+    const response = await call(carol, 'GET', `/teams/${alice.teamId}/status`);
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body.monitors).toEqual([
+      {
+        monitorId: checked.id,
+        lastCheckedAt: T0 + 60_000 - 300_000,
+        checks24h: 20,
+        uptime24h: 19 / 20,
+        avgLatencyMs24h: 100,
+        downSince: T0 - HOUR,
+      },
+      {
+        monitorId: fresh.id,
+        lastCheckedAt: null,
+        checks24h: 0,
+        uptime24h: null,
+        avgLatencyMs24h: null,
+        downSince: null,
+      },
+    ]);
+    expect(body.incidents.map((i: { cause: string }) => i.cause)).toEqual([
+      'unexpected status 503',
+      'timeout',
+    ]);
+    expect(body.incidents[0]).toMatchObject({ monitorName: 'Home page', resolvedAt: null });
+  });
+
+  it('is not visible to another team', async () => {
+    const project = await createProject(alice);
+    await createMonitor(alice, project.id);
+    const response = await call(bob, 'GET', `/teams/${alice.teamId}/status`);
+    expect(response.status).toBe(404);
+    const own = await json(await call(bob, 'GET', `/teams/${bob.teamId}/status`));
+    expect(own).toEqual({ monitors: [], incidents: [] });
+  });
+
+  it('needs a session', async () => {
+    expect((await call(null, 'GET', `/teams/${alice.teamId}/status`)).status).toBe(401);
+  });
+});
