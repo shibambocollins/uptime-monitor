@@ -1,0 +1,55 @@
+name: Deploy
+
+# Deploys the app Worker after CI passes on main, so the live site always matches main.
+# D1 migrations are NOT applied here: the token only has the "Edit Cloudflare Workers"
+# template's permissions (no D1). Apply a new migration by hand before merging the PR that
+# needs it (CLAUDE.md §12). chaos-target is not deployed here:
+# Render redeploys it from main by itself once checks pass (render.yaml autoDeployTrigger).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # A manual re-run, for example after rotating the Cloudflare token. Main only (below).
+  workflow_dispatch:
+
+# Least privilege: the deploy only reads the repo; Cloudflare access comes from the token.
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one halfway: a migration may be running.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: migrate and deploy
+    # Only a green CI run for a push to main (never a pull request), or a manual run on main.
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The exact commit CI tested, not whatever main points at by now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build and deploy the Worker
+        run: npm run deploy -w apps/app
