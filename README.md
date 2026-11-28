@@ -40,7 +40,7 @@ The binding limit is **D1's 100,000 rows written per day**. When it runs out, ev
 - The rollup table is `WITHOUT ROWID` with `PRIMARY KEY (monitor_id, hour)`, so the key is the table and there is no second index to write.
 - Per-team caps (20 monitors, 20 projects, 5 channels) are enforced inside the `INSERT`, so concurrent requests can't get past them.
 
-Measured over a 15-day soak test on the live database: **2.16 rows per check**, 21,596 of 21,600 ticks ran, tick CPU at most 7 ms with groups of 8. Full results: [`docs/phase-0-checklist.md`](docs/phase-0-checklist.md).
+Measured over a 15-day soak test on the live database: **2.16 rows per check**, 21,596 of 21,600 ticks ran, tick CPU at most 7 ms with groups of 8.
 
 **Uptime %** is successful checks divided by all checks in the window, computed from the hourly rollups.
 
@@ -109,4 +109,4 @@ In production, secrets are set with `npx wrangler secret put <NAME>` and never s
 
 ## Not built yet
 
-Alert rules per project, SLOW alerts, email alerts (without a domain they could only reach the account owner), API keys, and a periodic DNS re-check. Design notes and the reasons behind each decision are in [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Alert rules per project, SLOW alerts, email alerts (without a domain they could only reach the account owner), API keys, and a periodic DNS re-check.

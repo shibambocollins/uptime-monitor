@@ -25,7 +25,7 @@ const SCOPES = '';
 export type LoginError = 'denied' | 'state' | 'github';
 
 /**
- * GitHub OAuth (authorization code flow with `state` and PKCE S256, CLAUDE.md §8).
+ * GitHub OAuth (authorization code flow with `state` and PKCE S256).
  * Mounted at /api/v1/auth. The flow is browser navigation, so failures redirect to the
  * app with a reason instead of returning JSON.
  */

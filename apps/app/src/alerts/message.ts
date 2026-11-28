@@ -33,7 +33,7 @@ export function alertMessage(facts: AlertFacts): string {
   return text.length <= MAX_CONTENT_LENGTH ? text : `${text.slice(0, MAX_CONTENT_LENGTH - 1)}…`;
 }
 
-/** Scheme, host and path only: a query string can carry tokens (CLAUDE.md §8). */
+/** Scheme, host and path only: a query string can carry tokens. */
 export function displayUrl(url: string): string {
   try {
     const parsed = new URL(url);

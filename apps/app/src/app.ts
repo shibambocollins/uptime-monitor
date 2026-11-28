@@ -36,7 +36,7 @@ export function createApp(deps: AppDeps) {
   app.route('/api/v1', channelRoutes(deps));
   app.route('/api/v1', statusRoutes(deps));
 
-  /** The signed-in user and their teams. A DTO, not database rows (CLAUDE.md §12). */
+  /** The signed-in user and their teams. A DTO, not database rows. */
   app.get('/api/v1/me', requireSession(deps), async (c) => {
     const user = c.var.user;
     const { results: teams } = await c.env.DB.prepare(

@@ -1,7 +1,7 @@
 import type { FetchFn } from './run-checks';
 import type { TickStats } from './tick';
 
-// The dead man's switch (CLAUDE.md §11). A cron that stops running can't report that it
+// The dead man's switch. A cron that stops running can't report that it
 // stopped, so every tick pings an outside service (Healthchecks.io), which emails the owner
 // when the pings stop. A tick that fails pings ".../fail", so a broken tick (D1 down, the
 // daily write cap hit) alerts at once instead of after the grace period.

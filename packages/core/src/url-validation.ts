@@ -1,9 +1,9 @@
 /**
- * SSRF checks for monitor URLs, rules 1 and 2 of CLAUDE.md §8: run when a monitor is
- * created or its URL changes, and on every redirect `Location` (rule 4).
+ * SSRF checks for monitor URLs (scheme, IP literals and internal names): run when a monitor is
+ * created or its URL changes, and on every redirect `Location`.
  *
  * What this cannot do: a hostname is checked by name only. Whether it resolves to a
- * private address is rule 3 (DNS-over-HTTPS, using `ipBlockCategory` on each answer), and
+ * private address is checked separately (DNS-over-HTTPS, using `ipBlockCategory` on each answer), and
  * even that is a check, not a pin: DNS rebinding stays a documented gap. Cloudflare's
  * fetch() is the last line (Phase 0: private IP literals get 403, hostnames resolving to
  * private addresses get 530), but we reject first so the user gets a clear error.
@@ -75,7 +75,7 @@ export function validateMonitorUrl(input: string): UrlCheck {
 
 /**
  * The blocked range an address falls in, or null if it is public. For DNS answers
- * (rule 3), so it accepts any textual IPv4 or IPv6 form. Throws if `ip` is not an
+ * (the DNS check), so it accepts any textual IPv4 or IPv6 form. Throws if `ip` is not an
  * address, so a caller cannot mistake garbage for "public".
  */
 export function ipBlockCategory(ip: string): BlockedCategory | null {

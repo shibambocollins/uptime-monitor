@@ -1,7 +1,7 @@
 import { base64url } from '../auth/crypto';
 
 // Channel configs (a Discord webhook URL is a secret: anyone holding it can post) are
-// encrypted at rest with AES-GCM (CLAUDE.md §8). The key is the Worker secret
+// encrypted at rest with AES-GCM. The key is the Worker secret
 // CHANNEL_ENCRYPTION_KEY: 32 random bytes, base64. Stored form: "v1." + base64url(iv ||
 // ciphertext). The version prefix leaves room to rotate keys later.
 //

@@ -13,12 +13,12 @@ import {
 } from '../teams/access';
 
 /**
- * Monitors per team, across its live projects. The write budget is the binding limit
- * (CLAUDE.md §5): at 2 rows per check and 5-minute intervals one monitor writes 576 rows a
+ * Monitors per team, across its live projects. The D1 write budget is the binding limit:
+ * at 2 rows per check and 5-minute intervals one monitor writes 576 rows a
  * day, so 20 monitors use about 12% of the 100,000-row cap. Raise it with that in mind.
  */
 export const MAX_MONITORS_PER_TEAM = 20;
-/** CLAUDE.md §5: default and minimum interval 5 minutes. */
+/** Default and minimum interval: 5 minutes (the D1 write budget). */
 export const MIN_INTERVAL_SECONDS = 300;
 
 const fields = {
@@ -58,7 +58,7 @@ const COLUMN = {
   enabled: 'enabled',
 } as const;
 
-/** The monitor DTO: never the row itself (CLAUDE.md §12). */
+/** The monitor DTO: never the row itself. */
 export const monitorDto = (row: MonitorRow) => ({
   id: row.id,
   projectId: row.project_id,
@@ -144,7 +144,7 @@ export function monitorRoutes(deps: AppDeps) {
         `A team can have at most ${MAX_MONITORS_PER_TEAM} monitors.`,
       );
     }
-    // No URL in the log: query strings can carry tokens (CLAUDE.md §8).
+    // No URL in the log: query strings can carry tokens.
     console.log({
       event: 'monitor_created',
       monitorId: row.id,
@@ -256,7 +256,7 @@ const DNS_MESSAGES = {
   BLOCKED_ADDRESS: 'This hostname points to a private or reserved address.',
 };
 
-/** CLAUDE.md §8 rule 3. Returns the error response, or null if the hostname is fine. */
+/** The DNS check (monitors/dns.ts). Returns the error response, or null if the hostname is fine. */
 async function checkDns(c: Context, deps: AppDeps, href: string) {
   const result = await deps.checkHost(new URL(href).hostname);
   if (result.ok) return null;
@@ -282,7 +282,7 @@ const URL_MESSAGES: Record<Exclude<UrlCheck, { ok: true }>['reason'], string> = 
   BLOCKED_ADDRESS: 'This address is private or reserved, so it cannot be monitored.',
 };
 
-/** SSRF rules (CLAUDE.md §8): the reason is safe to show; it only describes the input. */
+/** SSRF rules: the reason is safe to show; it only describes the input. */
 function urlRejected(c: Context, check: Exclude<UrlCheck, { ok: true }>) {
   const message = URL_MESSAGES[check.reason];
   return apiError(c, 400, 'URL_NOT_ALLOWED', message, [{ field: 'url', message }]);

@@ -13,7 +13,7 @@
     "enabled": true,
   },
   // The React build (vite.config.mts), served from the same origin as the API, so the session
-  // cookie is first-party and there is no CORS (CLAUDE.md §3). Asset requests are free.
+  // cookie is first-party and there is no CORS. Asset requests are free.
   "assets": {
     "directory": "./dist/client",
     // Unknown paths get index.html, so client-side routes work on reload.
@@ -31,14 +31,14 @@
       "migrations_dir": "migrations",
     },
   ],
-  // The checker runs every minute (CLAUDE.md §5).
+  // The checker runs every minute.
   "triggers": {
     "crons": ["* * * * *"],
   },
   "vars": {
     // Upper bound on checks claimed per tick. They run in groups of 8 (CHECKS_PER_GROUP),
     // each group in its own invocation, because one invocation fits only a handful of
-    // fetch() calls inside the 10 ms CPU limit (Phase 0, docs/phase-0-checklist.md §6).
+    // fetch() calls inside the 10 ms CPU limit (Phase 0).
     // The tick deadline (checker/tick.ts) releases any group that wouldn't finish in time.
     "MAX_CHECKS_PER_TICK": "40",
     // The origin browsers use. OAuth's redirect_uri is built from it, so it must match the
@@ -47,7 +47,7 @@
     // The team the read-only demo shows (src/auth/demo.ts): the developer's own projects.
     "DEMO_TEAM_ID": "1",
   },
-  // Rate limits (CLAUDE.md §8), used through src/http/rate-limit.ts. Counted per Cloudflare
+  // Rate limits, used through src/http/rate-limit.ts. Counted per Cloudflare
   // location and approximate: a burst can pass a few extra requests before counts sync
   // (Cloudflare docs, "Rate Limiting"). Good enough to stop abuse, not an exact quota.
   // namespace_id is any integer we choose, unique in the account; the period is 10 or 60 s.

@@ -8,7 +8,7 @@ import {
   validateMonitorUrl,
 } from './url-validation';
 
-// One case per blocked category (CLAUDE.md §8 rule 5), shared with any future port.
+// One case per blocked category, shared with any future port.
 const urlCases = vectors.urls as { name: string; input: string; result: UrlCheck }[];
 const addressCases = vectors.addresses as { ip: string; category: BlockedCategory | null }[];
 

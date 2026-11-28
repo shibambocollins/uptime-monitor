@@ -1,5 +1,5 @@
 // A thin client for /api/v1. Same origin as the page, so the session cookie goes along and
-// there is no CORS (CLAUDE.md §3). Errors come back in one shape: {error: {code, message,
+// there is no CORS. Errors come back in one shape: {error: {code, message,
 // details?}} (src/http/errors.ts).
 
 export interface FieldError {

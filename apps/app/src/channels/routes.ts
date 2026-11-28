@@ -36,7 +36,7 @@ interface ChannelRow {
 const COLUMNS = `id, team_id, type, name, config_encrypted, hint, enabled, broken_at,
   broken_reason, verified_at, created_at, updated_at`;
 
-/** Never includes the config: the webhook URL is a secret (CLAUDE.md §7). */
+/** Never includes the config: the webhook URL is a secret. */
 export const channelDto = (row: ChannelRow) => ({
   id: row.id,
   teamId: row.team_id,
@@ -53,7 +53,7 @@ export const channelDto = (row: ChannelRow) => ({
 
 const name = z.string().trim().min(1).max(100);
 const webhookUrl = z.string().max(500);
-// DISCORD only for now. EMAIL is in the schema for later (CLAUDE.md §7).
+// DISCORD only for now. EMAIL is in the schema for later.
 const CreateChannel = z.strictObject({ type: z.literal('DISCORD'), name, webhookUrl });
 const UpdateChannel = z
   .strictObject({ name, enabled: z.boolean(), webhookUrl })
@@ -261,7 +261,7 @@ function keyMisconfigured(c: Context) {
   );
 }
 
-/** Sends the test message (CLAUDE.md §7: "Send a test message on save"). */
+/** Sends the test message ("Send a test message on save"). */
 async function verify(c: Context, deps: AppDeps, webhook: DiscordWebhook) {
   const result = await sendDiscordMessage(deps.fetch, webhook.url, TEST_MESSAGE);
   if (result.ok) return null;

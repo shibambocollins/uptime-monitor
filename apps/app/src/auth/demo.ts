@@ -1,4 +1,4 @@
-// The read-only demo (CLAUDE.md §8): "try the demo" signs a visitor in as one shared demo
+// The read-only demo: "try the demo" signs a visitor in as one shared demo
 // user, a VIEWER of the team named by DEMO_TEAM_ID, so recruiters can look around without
 // authorizing GitHub. VIEWER can't write (teams/access.ts canWrite), so the demo sees real
 // monitors, uptime and incidents but can't change them.

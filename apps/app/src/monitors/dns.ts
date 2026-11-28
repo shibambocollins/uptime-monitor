@@ -1,10 +1,10 @@
 import { ipBlockCategory } from '@uptime/core';
 import { type FetchFn, USER_AGENT } from '../checker/run-checks';
 
-// CLAUDE.md §8 rule 3: when a monitor is created or its URL changes, resolve the hostname
+// SSRF, DNS check: when a monitor is created or its URL changes, resolve the hostname
 // and reject it if any address is private. This is a check, not a pin: the name can be
 // repointed later (DNS rebinding), a documented gap. Cloudflare's own outbound filtering
-// still refuses private addresses at check time (measured 2026-10-21, CLAUDE.md §8 rule 6).
+// still refuses private addresses at check time (measured 2026-10-21).
 
 /** Cloudflare's DNS-over-HTTPS JSON API (docs: 1.1.1.1, "DNS over HTTPS", JSON format). */
 const DOH_URL = 'https://cloudflare-dns.com/dns-query';
@@ -24,7 +24,7 @@ export type CheckHostFn = (hostname: string) => Promise<HostCheck>;
 /**
  * Resolves A and AAAA for `hostname` and checks every answer. IP literals are skipped:
  * validateMonitorUrl has already checked them. Fails closed: if DNS can't be asked, the
- * caller rejects the change rather than accept an unchecked name (CLAUDE.md §8 rule 5).
+ * caller rejects the change rather than accept an unchecked name.
  */
 export async function checkHostDns(fetch: FetchFn, hostname: string): Promise<HostCheck> {
   if (isIpLiteral(hostname)) return { ok: true, addresses: [] };

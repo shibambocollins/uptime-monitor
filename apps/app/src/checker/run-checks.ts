@@ -2,7 +2,7 @@ import type { ClaimedMonitor } from './claim';
 
 export const USER_AGENT = 'HealthMonitor/1.0';
 
-/** Workers free plan: 6 connections waiting for response headers at once (CLAUDE.md §5). */
+/** Workers free plan: 6 connections waiting for response headers at once. */
 export const MAX_CONCURRENT_CHECKS = 6;
 
 const MAX_ERROR_LENGTH = 200;
@@ -32,7 +32,7 @@ export async function runCheck(monitor: ClaimedMonitor, deps: CheckDeps): Promis
     const response = await deps.fetch(monitor.url, {
       method: 'GET',
       // A redirect is reported as its own status. Following it would need every Location
-      // re-validated against the SSRF rules (CLAUDE.md §8), which arrive with the monitor API.
+      // re-validated against the SSRF rules, which arrive with the monitor API.
       redirect: 'manual',
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(monitor.timeoutMs),

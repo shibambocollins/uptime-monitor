@@ -1,4 +1,4 @@
--- Step 5 of feature work: incidents and the alert outbox (CLAUDE.md §5, §6, §7).
+-- Step 5 of feature work: incidents and the alert outbox.
 --
 -- These rows are written only when a monitor changes state (opens or closes an incident),
 -- never on a steady check, so the 2-rows-per-check budget is unchanged. Every foreign-key
@@ -22,7 +22,7 @@ CREATE INDEX incidents_monitor_id ON incidents (monitor_id, started_at);
 CREATE UNIQUE INDEX incidents_open ON incidents (monitor_id) WHERE resolved_at IS NULL;
 
 -- A team's alert destinations. config holds the secret part (a Discord webhook URL)
--- encrypted with AES-GCM (CLAUDE.md §8); hint is the few characters the UI may show.
+-- encrypted with AES-GCM; hint is the few characters the UI may show.
 CREATE TABLE notification_channels (
   id INTEGER PRIMARY KEY,
   team_id INTEGER NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
@@ -54,7 +54,7 @@ CREATE INDEX alert_events_monitor_id ON alert_events (monitor_id, created_at);
 CREATE UNIQUE INDEX alert_events_incident_type ON alert_events (incident_id, type);
 
 -- One row per event and channel: the delivery queue. A channel failing only delays its
--- own rows (CLAUDE.md §7, delivery isolation).
+-- own rows (delivery isolation).
 CREATE TABLE alert_deliveries (
   event_id INTEGER NOT NULL REFERENCES alert_events (id) ON DELETE CASCADE,
   channel_id INTEGER NOT NULL REFERENCES notification_channels (id) ON DELETE CASCADE,

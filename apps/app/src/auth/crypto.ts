@@ -1,4 +1,4 @@
-// Web Crypto helpers for sessions and OAuth (CLAUDE.md §8). No passwords anywhere: a
+// Web Crypto helpers for sessions and OAuth. No passwords anywhere: a
 // SHA-256 of a 32-byte random token is enough, because the token itself is unguessable.
 
 const encoder = new TextEncoder();

@@ -91,7 +91,7 @@ describe('applyCheck', () => {
     expect(applyCheck(fresh('DOWN'), 'OK', policy).transition).toEqual({ from: 'DOWN', to: 'UP' });
   });
 
-  // The write budget depends on this (CLAUDE.md §5): steady states must not touch the row.
+  // The write budget depends on this: steady states must not touch the row.
   it.each([
     ['UP', 'OK'],
     ['DEGRADED', 'SLOW'],

@@ -5,7 +5,7 @@ import { parseId } from '../http/validate';
 import { teamRole } from '../teams/access';
 
 // What the dashboard shows next to each monitor, in one read for the whole team:
-// uptime and latency over 24 hours (from the hourly rollups, CLAUDE.md §5), the last check,
+// uptime and latency over 24 hours (from the hourly rollups), the last check,
 // and recent incidents. Reads only: about 20 monitors × 25 rollup rows per call.
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -34,7 +34,7 @@ interface IncidentRow {
 }
 
 /**
- * There is no last_checked_at column (CLAUDE.md §10). The claim moves next_run_at one
+ * There is no last_checked_at column. The claim moves next_run_at one
  * interval ahead, so a normal check was one interval before it; 0 means "due now" (never
  * checked, or reset by a URL change). A check re-checked early (RECHECK_MS) breaks that
  * sum. Every failure is stored as an event, so the later of the two is right; the first
