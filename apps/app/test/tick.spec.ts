@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { claimDueMonitors } from '../src/checker/claim';
 import type { ClaimedMonitor } from '../src/checker/claim';
 import { checkGroup, type GroupResult } from '../src/checker/group';
-import { FAILURE_RECHECK_MS } from '../src/checker/persist';
+import { RECHECK_MS } from '../src/checker/persist';
 import type { FetchFn } from '../src/checker/run-checks';
 import { runTick, type TickDeps } from '../src/checker/tick';
 import worker from '../src/index';
@@ -194,9 +194,9 @@ describe('runTick', () => {
         .first<{ next_run_at: number }>())!.next_run_at;
 
     await tickAt(T0);
-    expect(await nextRun()).toBe(T0 + FAILURE_RECHECK_MS);
+    expect(await nextRun()).toBe(T0 + RECHECK_MS);
     await tickAt(T0 + MINUTE);
-    expect(await nextRun()).toBe(T0 + MINUTE + FAILURE_RECHECK_MS);
+    expect(await nextRun()).toBe(T0 + MINUTE + RECHECK_MS);
     const third = await tickAt(T0 + 2 * MINUTE);
 
     expect(third.transitions).toEqual([{ monitorId: id, from: 'UP', to: 'DOWN' }]);
@@ -204,6 +204,39 @@ describe('runTick', () => {
     expect(await nextRun()).toBe(T0 + 2 * MINUTE + 300_000);
     await tickAt(T0 + 3 * MINUTE);
     expect(await nextRun()).toBe(T0 + 2 * MINUTE + 300_000);
+  });
+
+  it('re-checks a recovering DOWN monitor at the next tick, so UP takes a minute after the first good check', async () => {
+    const id = await addMonitor({ interval_seconds: 300 });
+    await env.DB.prepare(`UPDATE monitors SET state = 'DOWN' WHERE id = ?1`).bind(id).run();
+    let clock = T0;
+    let status = 200;
+    const { deps: d } = deps(async () => new Response('', { status }), { now: () => clock });
+    const tickAt = (time: number) => {
+      clock = time;
+      return runTick(time, d);
+    };
+    const nextRun = async () =>
+      (await env.DB.prepare(`SELECT next_run_at FROM monitors WHERE id = ?1`)
+        .bind(id)
+        .first<{ next_run_at: number }>())!.next_run_at;
+
+    await tickAt(T0);
+    expect(await nextRun()).toBe(T0 + RECHECK_MS);
+    const second = await tickAt(T0 + MINUTE);
+    expect(second.transitions).toEqual([{ monitorId: id, from: 'DOWN', to: 'UP' }]);
+    // Once UP, back to the normal interval.
+    expect(await nextRun()).toBe(T0 + MINUTE + 300_000);
+
+    // A failure that breaks a recovery streak goes back to the normal DOWN interval.
+    await env.DB.prepare(`UPDATE monitors SET state = 'DOWN', next_run_at = ?2 WHERE id = ?1`)
+      .bind(id, T0 + 10 * MINUTE)
+      .run();
+    await tickAt(T0 + 10 * MINUTE);
+    expect(await nextRun()).toBe(T0 + 10 * MINUTE + RECHECK_MS);
+    status = 503;
+    await tickAt(T0 + 11 * MINUTE);
+    expect(await nextRun()).toBe(T0 + 11 * MINUTE + 300_000);
   });
 
   it('keeps the normal interval after a success that ends a failure streak', async () => {
