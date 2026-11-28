@@ -78,6 +78,8 @@ npm run dev:web    # in a second terminal: Vite with hot reload on :5173
 
 Checks: `npm run typecheck && npm run lint && npm test` from the repository root.
 
+**Deploys** are automatic: when CI passes on `main`, [`deploy.yml`](.github/workflows/deploy.yml) deploys the Worker from the exact commit CI tested. D1 migrations are applied by hand (`npx wrangler d1 migrations apply uptime --remote` in `apps/app`) before merging a PR that adds one.
+
 ### Configuration
 
 | Name                                       | Kind                | What it is                                                                                               |
