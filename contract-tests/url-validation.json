@@ -1,5 +1,5 @@
 {
-  "description": "SSRF checks for monitor URLs (CLAUDE.md §8, rules 1-2). Any implementation (packages/core/src/url-validation.ts, or a future port) must return exactly `result` for each `input`. `addresses` covers the address check used on DNS answers (rule 3): `category` null means public.",
+  "description": "SSRF checks for monitor URLs. Any implementation (packages/core/src/url-validation.ts, or a future port) must return exactly `result` for each `input`. `addresses` covers the address check used on DNS answers: `category` null means public.",
   "urls": [
     {
       "name": "accepts a plain https URL and adds the root path",

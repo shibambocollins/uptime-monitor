@@ -3,7 +3,7 @@ name: Deploy
 # Deploys the app Worker after CI passes on main, so the live site always matches main.
 # D1 migrations are NOT applied here: the token only has the "Edit Cloudflare Workers"
 # template's permissions (no D1). Apply a new migration by hand before merging the PR that
-# needs it (CLAUDE.md §12). chaos-target is not deployed here:
+# needs it. chaos-target is not deployed here:
 # Render redeploys it from main by itself once checks pass (render.yaml autoDeployTrigger).
 on:
   workflow_run:

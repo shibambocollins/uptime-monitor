@@ -12,7 +12,7 @@ const name = z.string().trim().min(1).max(100);
 const CreateProject = z.strictObject({ name });
 const UpdateProject = z.strictObject({ name });
 
-/** The project DTO: never the row itself (CLAUDE.md §12). */
+/** The project DTO: never the row itself. */
 export const projectDto = (row: ProjectRow) => ({
   id: row.id,
   teamId: row.team_id,
@@ -94,7 +94,7 @@ export function projectRoutes(deps: AppDeps) {
   });
 
   /**
-   * Soft delete (CLAUDE.md §10): the project is hidden and its monitors are disabled in the
+   * Soft delete: the project is hidden and its monitors are disabled in the
    * same batch, so the checker stops at once and the claim stays a single-table scan.
    * Rows are purged later. OWNER only: it switches off every monitor in the project.
    */

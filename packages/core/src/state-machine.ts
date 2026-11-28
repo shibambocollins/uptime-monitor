@@ -36,11 +36,11 @@ export interface StepResult {
 }
 
 /**
- * Applies one check to a monitor (CLAUDE.md §6).
+ * Applies one check to a monitor.
  *
  * Counters only count towards a pending transition and reset when it happens, so a
  * monitor that stays UP and fast (or DEGRADED and slow, or DOWN and failing) keeps all
- * three at 0. That matters for the D1 write budget (CLAUDE.md §5): the monitor row is
+ * three at 0. That matters for the D1 write budget: the monitor row is
  * rewritten only when this function returns a different status.
  */
 export function applyCheck(

@@ -4,7 +4,7 @@ export const MONITOR_STATES = ['UP', 'DEGRADED', 'DOWN'] as const;
 export type MonitorState = (typeof MONITOR_STATES)[number];
 
 /**
- * Project health is the worst state among its monitors (CLAUDE.md §3).
+ * Project health is the worst state among its monitors.
  * Returns null for a project with no monitors: "no data" is not the same as UP.
  */
 export function worstState(states: readonly MonitorState[]): MonitorState | null {

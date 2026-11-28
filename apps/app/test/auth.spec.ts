@@ -326,7 +326,7 @@ describe('POST /api/v1/auth/logout', () => {
   });
 });
 
-describe('secrets in logs (CLAUDE.md §8)', () => {
+describe('secrets in logs', () => {
   const logged: string[] = [];
   beforeEach(() => {
     logged.length = 0;

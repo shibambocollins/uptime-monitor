@@ -59,7 +59,7 @@ const count = async (table: string) =>
 
 describe('indexes', () => {
   // Without an index on the child column, deleting a parent scans the whole child table
-  // once per deleted row (4.0M rows read on 2026-11-09, docs/phase-0-checklist.md §7).
+  // once per deleted row (4.0M rows read on 2026-11-09).
   it('gives every foreign-key column an index or primary key that starts with it', async () => {
     const tables = await appTables();
     const missing: string[] = [];
@@ -87,7 +87,7 @@ describe('indexes', () => {
   });
 });
 
-describe('write cost per check with the project_id index (CLAUDE.md §5: ≤ 2 rows)', () => {
+describe('write cost per check with the project_id index (≤ 2 rows)', () => {
   it('counts the index row when a monitor is inserted, so the measurement sees indexes', async () => {
     const projectId = await addProject(T0);
     const result = await run(

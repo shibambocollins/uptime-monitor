@@ -6,7 +6,7 @@ export interface FieldError {
   message: string;
 }
 
-/** The one error shape every /api/v1 endpoint returns (CLAUDE.md §12). */
+/** The one error shape every /api/v1 endpoint returns. */
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: FieldError[] };
 }

@@ -9,7 +9,7 @@ export interface AppEnv {
   Variables: { user: SessionUser };
 }
 
-/** Outside effects the API needs, passed in so tests can fake them (CLAUDE.md §12). */
+/** Outside effects the API needs, passed in so tests can fake them. */
 export interface AppDeps {
   fetch: FetchFn;
   now: () => number;

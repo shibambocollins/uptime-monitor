@@ -9,7 +9,7 @@ const USER_URL = 'https://api.github.com/user';
 const TIMEOUT_MS = 10_000;
 
 export interface GithubProfile {
-  /** GitHub's immutable numeric user id: the identity (CLAUDE.md §8). */
+  /** GitHub's immutable numeric user id: the identity. */
   id: number;
   login: string;
   name: string | null;

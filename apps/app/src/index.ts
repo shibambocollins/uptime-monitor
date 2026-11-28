@@ -33,7 +33,7 @@ export default {
         runGroup: (monitors) => ctx.exports.CheckRunner.checkGroup(monitors),
         deliverAlerts: (deadline) => ctx.exports.AlertSender.deliver(deadline),
         now: () => Date.now(),
-        // Workers Logs indexes the fields of a logged object (CLAUDE.md §11).
+        // Workers Logs indexes the fields of a logged object.
         log,
         tickId,
         maxChecks: readIntVar(env.MAX_CHECKS_PER_TICK, 40),

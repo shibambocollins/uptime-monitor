@@ -355,7 +355,7 @@ describe('monitors', () => {
     ['ftp://files.example.com/', 'UNSUPPORTED_SCHEME'],
     ['https://user:pass@shop.example.com/', 'CREDENTIALS'],
     ['not a url', 'INVALID_URL'],
-  ])('rejects %s (SSRF rules, CLAUDE.md §8)', async (url) => {
+  ])('rejects %s (SSRF rules)', async (url) => {
     const project = await createProject(alice);
     const response = await call(alice, 'POST', `/projects/${project.id}/monitors`, {
       name: 'Bad',
@@ -575,7 +575,7 @@ describe('a monitor deleted while its check is in flight', () => {
   });
 });
 
-describe('DNS check on monitor URLs (CLAUDE.md §8 rule 3)', () => {
+describe('DNS check on monitor URLs', () => {
   it('rejects a hostname that resolves to a private address, or to nothing', async () => {
     const project = await createProject(alice);
     for (const reason of ['BLOCKED_ADDRESS', 'NOT_FOUND'] as const) {

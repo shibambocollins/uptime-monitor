@@ -4,7 +4,7 @@ import type { GithubProfile } from './github';
  * Finds or creates the user for a GitHub profile and returns their id. A first login also
  * creates a personal team with the user as OWNER, so they have somewhere to add monitors.
  *
- * Keyed by GitHub's numeric id only; never matched by email (CLAUDE.md §8). The profile
+ * Keyed by GitHub's numeric id only; never matched by email. The profile
  * fields are refreshed on every login (one row written; logins are rare).
  */
 export async function upsertGithubUser(

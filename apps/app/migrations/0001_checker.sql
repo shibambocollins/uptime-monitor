@@ -1,5 +1,5 @@
--- Phase 0 step 4: the subset of the schema the checker needs (CLAUDE.md §10).
--- Every index costs at least one extra row written when its columns change (CLAUDE.md §5),
+-- Phase 0 step 4: the subset of the schema the checker needs.
+-- Every index costs at least one extra row written when its columns change,
 -- so the only indexes here are primary keys.
 
 -- No index on next_run_at: the claim rewrites it on every check. The claim scans this
@@ -56,7 +56,7 @@ CREATE TABLE check_events (
   state TEXT NOT NULL CHECK (state IN ('UP', 'DEGRADED', 'DOWN'))
 );
 
--- One row per UTC day, upserted once per tick (CLAUDE.md §5 daily-cap safety).
+-- One row per UTC day, upserted once per tick (daily write-cap safety).
 CREATE TABLE usage_daily (
   -- 'YYYY-MM-DD' (UTC).
   day TEXT NOT NULL PRIMARY KEY,

@@ -34,7 +34,7 @@ interface ClaimedRow {
  * 2026-10-21), so the arithmetic stays aligned as long as that offset holds.
  *
  * One row written per claimed monitor. No index on next_run_at, so the inner SELECT scans
- * the table (rows read, not written; CLAUDE.md §5).
+ * the table (rows read, not written).
  */
 const CLAIM_SQL = `
 UPDATE monitors

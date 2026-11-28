@@ -1,11 +1,11 @@
-// Team scoping (CLAUDE.md §8: every query is scoped to the caller's team). Each lookup
+// Team scoping (every query is scoped to the caller's team). Each lookup
 // joins team_members on the caller's user id, so a row from another team comes back as
 // "not found" and the route answers 404. Routes never load a row first and check its
 // team afterwards, which is easy to forget once.
 
 export type Role = 'OWNER' | 'MEMBER' | 'VIEWER';
 
-/** VIEWER is read-only (the demo account, CLAUDE.md §8). */
+/** VIEWER is read-only (the demo account). */
 export const canWrite = (role: Role) => role !== 'VIEWER';
 
 export async function teamRole(db: D1Database, userId: number, teamId: number) {

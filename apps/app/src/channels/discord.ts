@@ -1,6 +1,6 @@
 import { type FetchFn, USER_AGENT } from '../checker/run-checks';
 
-// Discord webhooks (CLAUDE.md §7). Only Discord's own hosts and the
+// Discord webhooks. Only Discord's own hosts and the
 // /api/webhooks/{id}/{token} shape are accepted, and the URL is rebuilt on discord.com, so
 // we only ever send requests to discord.com: no SSRF through this feature.
 

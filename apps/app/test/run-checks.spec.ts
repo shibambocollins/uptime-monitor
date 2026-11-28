@@ -129,7 +129,7 @@ describe('runChecks', () => {
     expect(maxInFlight).toBe(6);
   });
 
-  // P4 in docs/phase-0-checklist.md: queueing must not inflate latency.
+  // Measured in the Phase 0 spike: queueing must not inflate latency.
   it('starts each timer when its request starts, not when the tick starts', async () => {
     const { results } = await drive(20);
     expect(results.map((r) => r.responseMs)).toEqual(new Array(20).fill(100));

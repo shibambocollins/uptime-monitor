@@ -5,7 +5,7 @@ import { alertMessage } from './message';
 
 // Sends queued alerts (alert_deliveries, migrations/0003_alerts.sql) to Discord. Runs once
 // per tick in its own invocation (AlertSender), after the checks, so a Discord problem
-// can't slow or fail a check (CLAUDE.md §7, delivery isolation).
+// can't slow or fail a check (delivery isolation).
 
 /** Sent one at a time, so at most this many Discord calls per tick. */
 export const DELIVERIES_PER_RUN = 10;

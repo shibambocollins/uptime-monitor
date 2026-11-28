@@ -1,6 +1,6 @@
--- Step 2 of feature work: the tables auth and the monitor API need (CLAUDE.md §10).
+-- Step 2 of feature work: the tables auth and the monitor API need.
 --
--- Index rules (CLAUDE.md §5, and docs/phase-0-checklist.md §7):
+-- Index rules:
 -- * Every index costs a row written whenever a write changes its columns, so index only
 --   columns that rarely change. Still no index on monitors.next_run_at.
 -- * Every foreign-key column gets an index (or leads a primary key). Without one, deleting
@@ -16,7 +16,7 @@
 -- 2026-11-09).
 PRAGMA defer_foreign_keys = on;
 
--- GitHub's numeric id is the identity (CLAUDE.md §8): logins and emails can change.
+-- GitHub's numeric id is the identity: logins and emails can change.
 CREATE TABLE users (
   id INTEGER PRIMARY KEY,
   github_id INTEGER NOT NULL UNIQUE,
@@ -47,7 +47,7 @@ CREATE TABLE teams (
   created_at INTEGER NOT NULL
 );
 
--- VIEWER is for the read-only demo (CLAUDE.md §8). SQLite cannot change a CHECK without
+-- VIEWER is for the read-only demo. SQLite cannot change a CHECK without
 -- rebuilding the table, so the planned roles are all here from the start.
 CREATE TABLE team_members (
   team_id INTEGER NOT NULL REFERENCES teams (id) ON DELETE CASCADE,
@@ -59,7 +59,7 @@ CREATE TABLE team_members (
 -- "Which teams am I in?" on every request, and the cascade when a user is deleted.
 CREATE INDEX team_members_user_id ON team_members (user_id);
 
--- Soft delete (CLAUDE.md §10): deleted_at set, purged later. Soft-deleting a project must
+-- Soft delete: deleted_at set, purged later. Soft-deleting a project must
 -- also disable its monitors, so the claim stays a single-table scan.
 CREATE TABLE projects (
   id INTEGER PRIMARY KEY,
@@ -78,8 +78,8 @@ DROP TABLE check_events;
 DROP TABLE monitors;
 
 -- Changes from 0001: project_id, name, created_at, updated_at, and a length cap on url
--- (MAX_URL_LENGTH in @uptime/core). Deliberately no last_checked_at (CLAUDE.md §10
--- listed it): writing it on every check would rewrite this row every check, one more row
+-- (MAX_URL_LENGTH in @uptime/core). Deliberately no last_checked_at:
+-- writing it on every check would rewrite this row every check, one more row
 -- per check. The last check time is next_run_at minus the interval, because the claim
 -- sets next_run_at to the tick time plus the interval.
 CREATE TABLE monitors (

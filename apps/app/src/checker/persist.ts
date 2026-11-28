@@ -124,8 +124,8 @@ export function releaseStatement(
 /**
  * Every write for one tick, to be sent as a single db.batch(). Per check: one rollup
  * upsert always; the monitor row only if its status changed; a raw event only for a
- * failure or a state change (CLAUDE.md §5); incident and alert rows only when the monitor
- * goes DOWN or comes back from DOWN (CLAUDE.md §6: one alert on open, one on recovery).
+ * failure or a state change; incident and alert rows only when the monitor
+ * goes DOWN or comes back from DOWN (one alert on open, one on recovery).
  */
 export function buildWriteStatements(
   db: D1Database,
