@@ -40,12 +40,21 @@ ON CONFLICT (monitor_id, hour) DO UPDATE SET
   ge_5000 = ge_5000 + excluded.ge_5000`;
 
 /**
- * A monitor with failures counting towards DOWN is checked again at the next tick, not a
- * whole interval later, so an outage is confirmed in about 2 minutes instead of 10-15.
+ * A monitor part-way to a state change is checked again at the next tick, not a whole
+ * interval later: failures counting towards DOWN (an outage is confirmed in about 2 minutes
+ * instead of 10-15), and, once DOWN, successes counting towards UP (a recovery is confirmed
+ * about a minute after the first good check, not a whole interval later).
  * Half a tick, so it is due when the next tick claims (ticks are a minute apart). Costs no
- * extra row: the monitor row is rewritten anyway, because its failure counter changed.
+ * extra row: the monitor row is rewritten anyway, because one of its counters changed.
  */
-export const FAILURE_RECHECK_MS = 30_000;
+export const RECHECK_MS = 30_000;
+
+/** When to check again early, or null for the normal interval (set by the claim). */
+function recheckAt(after: MonitorStatus, checkedAt: number): number | null {
+  const counting =
+    after.state === 'DOWN' ? after.consecutiveSuccesses > 0 : after.consecutiveFailures > 0;
+  return counting ? checkedAt + RECHECK_MS : null;
+}
 
 // ?6: when to re-check early, or NULL for the normal interval (set by the claim). MIN, so an
 // early re-check never pushes a check later.
@@ -143,9 +152,7 @@ export function buildWriteStatements(
             after.consecutiveFailures,
             after.consecutiveSlow,
             after.consecutiveSuccesses,
-            after.state !== 'DOWN' && after.consecutiveFailures > 0
-              ? result.checkedAt + FAILURE_RECHECK_MS
-              : null,
+            recheckAt(after, result.checkedAt),
           ),
       );
     }

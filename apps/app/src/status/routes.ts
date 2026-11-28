@@ -36,8 +36,10 @@ interface IncidentRow {
 /**
  * There is no last_checked_at column (CLAUDE.md §10). The claim moves next_run_at one
  * interval ahead, so a normal check was one interval before it; 0 means "due now" (never
- * checked, or reset by a URL change). A failure re-checked early (FAILURE_RECHECK_MS) breaks
- * that sum, but every failure is stored as an event, so the later of the two is right.
+ * checked, or reset by a URL change). A check re-checked early (RECHECK_MS) breaks that
+ * sum. Every failure is stored as an event, so the later of the two is right; the first
+ * good check of a recovery is not, so for up to a minute (until the next tick checks it
+ * again and stores the recovery or the failure) this shows an earlier time.
  */
 function lastChecked(row: MonitorStatsRow): number | null {
   const fromClaim = row.next_run_at > 0 ? row.next_run_at - row.interval_seconds * 1000 : null;

@@ -81,7 +81,7 @@ States: `UP`, `DEGRADED` (slow), `DOWN`.
 - UP → DEGRADED: latency above the monitor's threshold for N consecutive checks.
 - UP/DEGRADED → DOWN: N consecutive failures (default N=3, configurable).
 - DOWN → UP: M consecutive successes (default M=2).
-- While failures count towards DOWN, the monitor is re-checked at the next tick instead of after its interval (`FAILURE_RECHECK_MS`, `checker/persist.ts`, 2026-11-27), so a 5-minute monitor alerts about 2 to 7 minutes after an outage starts instead of 10 to 16. No extra rows written: the monitor row is rewritten anyway when its failure counter changes. Once DOWN it goes back to its normal interval.
+- While failures count towards DOWN, the monitor is re-checked at the next tick instead of after its interval (`RECHECK_MS`, `checker/persist.ts`, 2026-11-27), so a 5-minute monitor alerts about 2 to 7 minutes after an outage starts instead of 10 to 16. Once DOWN it goes back to its normal interval, so a monitor that stays down is not hammered. The same applies on the way back (2026-11-28): after the first good check of a DOWN monitor it is re-checked at the next tick, so recovery is confirmed about 1 to 6 minutes after the outage ends instead of 5 to 10. No extra rows written either way: the monitor row is rewritten anyway when a counter changes.
 - Opening DOWN creates an `incident`; recovery closes it. One alert on open, one on recovery, none while unchanged. A single timeout never alerts.
 A check "fails" on: timeout, connection error, status code not matching expected, or (optional) expected text missing.
 Test vectors live in `contract-tests/*.json` so a future port (for example back to Java) must pass the same cases.

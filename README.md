@@ -55,7 +55,19 @@ Measured over a 15-day soak test on the live database: **2.16 rows per check**, 
 
 [`apps/chaos-target`](apps/chaos-target) is a small service on Render that goes down, slows down and flaps on a fixed 2-hour schedule. Monitoring it measures the platform itself: time to detect, false alerts during flapping, and missed incidents.
 
-`npm run measure -w apps/chaos-target` compares the live incidents with chaos-target's own schedule (`GET /schedule`) and prints the results as a table: time to detect and to alert for every planned outage, missed outages, false alerts (above all during flapping, which must never alert) and slow phases flagged. Results over 24 hours: _to be added after the first full day of measurement_.
+`npm run measure -w apps/chaos-target` compares the live incidents with chaos-target's own schedule (`GET /schedule`) and prints the results as a table: time to detect and to alert for every planned outage, missed outages, false alerts (above all during flapping, which must never alert) and slow phases flagged. Results from the first 12 hours (6 two-hour cycles, 2026-11-27 21:00 to 2026-11-28 09:00 UTC), with a 5-minute monitor:
+
+| Measure                                 | Result                              |
+| --------------------------------------- | ----------------------------------- |
+| Planned outages                         | 6                                   |
+| Detected                                | 6 (missed 0)                        |
+| Time to detect                          | median 3 min 46 s, worst 5 min 46 s |
+| Time to Discord alert                   | median 3 min 47 s, worst 5 min 47 s |
+| False alerts                            | 0 (0 during flapping)               |
+| Slow phases flagged                     | 6 of 6                              |
+| Recovery noticed after the outage ended | 5 min 46 s to 8 min 46 s            |
+
+Detection is fast because a failing monitor is re-checked at the next tick (about a minute later) until it is DOWN. Recovery was slower in this run because the two successful checks it needs ran at the monitor's normal interval; since 2026-11-28 a recovering monitor is also re-checked at the next tick, which should bring recovery down to about 1 to 6 minutes (not measured yet).
 
 ## Tech
 
